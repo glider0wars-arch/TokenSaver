@@ -83,6 +83,15 @@ class GatewaySecurityTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "TOKENSAVER_CUT_STEP must be an integer"):
                 load_config()
 
+
+    def test_invalid_upstream_port_is_rejected_at_startup(self):
+        with patch.dict(os.environ, {
+            "TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com:99999",
+        }, clear=True):
+            with self.assertRaisesRegex(ValueError, "port"):
+                load_config()
+
+
     def test_remote_mode_without_auth_token_is_rejected_at_startup(self):
         with patch.dict(os.environ, {
             "TOKENSAVER_ALLOW_REMOTE": "1",
