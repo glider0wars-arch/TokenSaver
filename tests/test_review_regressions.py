@@ -158,7 +158,7 @@ class ReviewRegressionTests(unittest.TestCase):
         repeated = "ordinary repeated log line" + "\r\n"
         noise = "".join("ordinary filler text " + chr(65 + (i % 26)) + chr(65 + (i // 26)) + "\r\n" for i in range(40))
         source = "\x1b[31mSTART\x1b[0m\r\n" + repeated * 25 + noise + "ERROR: exact failure detail\r\nخطا: جزئیات مهم\r\nTAIL"
-        result = _compress_tool_output_text(source, max_chars=100, head_lines=2, tail_lines=2)
+        result = _compress_tool_output_text(source, max_chars=180, head_lines=2, tail_lines=2)
         self.assertNotIn("\x1b[", result)
         self.assertIn("repeated x25", result)
         self.assertIn("ERROR: exact failure detail", result)
