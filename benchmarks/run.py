@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import urllib.error
@@ -72,27 +73,16 @@ def _live_usage(payload: dict[str, Any], *, url: str, key: str) -> dict[str, int
     if not isinstance(details, dict):
         details = {}
     try:
-        cached = usage.get("cache_read_input_tokens", usage.get("cached_input_tokens", details.get("cached_tokens", 0)))
-        cache_creation = usage.get("cache_creation_input_tokens", usage.get("cache_write_tokens", details.get("cache_write_tokens", 0)))
-        creation_details = usage.get("cache_creation", {})
-        if isinstance(creation_details, dict):
-            creation_total = sum(
-                max(0, int(creation_details.get(name, 0) or 0))
-                for name in ("ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens")
-            )
-            cache_creation = max(int(cache_creation or 0), creation_total)
-        cached = max(0, int(cached or 0))
-        cache_creation = max(0, int(cache_creation or 0))
         prompt = usage.get("prompt_tokens", usage.get("input_tokens"))
         output = usage.get("completion_tokens", usage.get("output_tokens"))
-        input_tokens = max(0, int(prompt or 0))
-        if any(name in usage for name in ("cache_read_input_tokens", "cache_creation_input_tokens", "cache_creation")):
-            input_tokens += cached + cache_creation
+        cached = details.get("cached_tokens", 0)
+        cache_creation = usage.get("cache_creation_input_tokens", usage.get("cache_write_tokens",
+                         details.get("cache_write_tokens", 0)))
         return {
-            "input": input_tokens,
+            "input": max(0, int(prompt or 0)),
             "output": max(0, int(output or 0)),
-            "cached_input": cached,
-            "cache_creation_input": cache_creation,
+            "cached_input": max(0, int(cached or 0)),
+            "cache_creation_input": max(0, int(cache_creation or 0)),
         }
     except (TypeError, ValueError):
         print("live response had malformed usage fields; no key was printed", file=sys.stderr)
@@ -103,6 +93,18 @@ def run(*, cached_ratio: float = 0.1, input_price: float = 1.0,
         cacheable_fraction: float = 0.7, live: bool = False,
         minimum_retention: float = 95.0, keep_recent: int = 4,
         summary_max_chars: int = 2400) -> tuple[str, bool]:
+    if not math.isfinite(cached_ratio) or not 0.0 <= cached_ratio <= 1.0:
+        raise ValueError("cached_ratio must be finite and between 0 and 1.")
+    if not math.isfinite(input_price) or input_price < 0:
+        raise ValueError("input_price must be finite and non-negative.")
+    if not math.isfinite(cacheable_fraction) or not 0.0 <= cacheable_fraction <= 1.0:
+        raise ValueError("cacheable_fraction must be finite and between 0 and 1.")
+    if not math.isfinite(minimum_retention) or not 0.0 <= minimum_retention <= 100.0:
+        raise ValueError("minimum_retention must be finite and between 0 and 100.")
+    if keep_recent < 1:
+        raise ValueError("keep_recent must be at least 1.")
+    if summary_max_chars < 100:
+        raise ValueError("summary_max_chars must be at least 100.")
     rows: list[dict[str, Any]] = []
     retention_failed = False
     live_url = os.getenv("TOKENSAVER_LIVE_API_URL", "").strip()
@@ -197,15 +199,15 @@ def main() -> int:
     parser.add_argument("--summary-max-chars", type=int, default=2400)
     parser.add_argument("--live", action="store_true", help="Use API credentials from environment variables; never saves keys")
     args = parser.parse_args()
-    if not 0.0 <= args.cached_input_price_ratio <= 1.0:
+    if not math.isfinite(args.cached_input_price_ratio) or not 0.0 <= args.cached_input_price_ratio <= 1.0:
         parser.error("--cached-input-price-ratio must be between 0 and 1")
-    if args.input_price_per_million < 0:
+    if not math.isfinite(args.input_price_per_million) or args.input_price_per_million < 0:
         parser.error("--input-price-per-million must not be negative")
-    if not 0.0 <= args.minimum_retention <= 100.0:
+    if not math.isfinite(args.minimum_retention) or not 0.0 <= args.minimum_retention <= 100.0:
         parser.error("--minimum-retention must be between 0 and 100")
     if args.keep_recent < 1 or args.summary_max_chars < 100:
         parser.error("--keep-recent must be positive and --summary-max-chars must be at least 100")
-    if not 0.0 <= args.cacheable_fraction <= 1.0:
+    if not math.isfinite(args.cacheable_fraction) or not 0.0 <= args.cacheable_fraction <= 1.0:
         parser.error("--cacheable-fraction must be between 0 and 1")
     report, failed = run(
         cached_ratio=args.cached_input_price_ratio,
