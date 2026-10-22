@@ -69,6 +69,26 @@ class ReviewRegressionTests(unittest.TestCase):
                 if first.get("type") == "function_call_output":
                     self.fail("retained context starts with an orphan function_call_output")
 
+    def test_anthropic_after_char_count_includes_system_summary_prefix(self):
+        system = "Stable system prompt"
+        messages = [
+            {"role": "user", "content": "old context " * 100},
+            {"role": "assistant", "content": "old response " * 100},
+            {"role": "user", "content": "latest question " * 100},
+            {"role": "assistant", "content": "latest answer " * 100},
+        ]
+        compacted, stats = compact_anthropic_messages(
+            messages, system=system, keep_recent=2, cut_step=1, min_total_chars=1,
+            min_old_chars=1, max_summary_chars=500,
+        )
+        self.assertTrue(stats["compressed"])
+        summary = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\\n" + stats["summary_text"]
+        expected_system = (system + "\\n\\n" + summary).strip()
+        actual_after = len(expected_system) + sum(
+            len(f"{message.get('role', 'unknown')}: {_content_text(message.get('content', ''))}".strip())
+            for message in compacted
+        )
+        self.assertEqual(stats["after_chars"], actual_after)
     def test_anthropic_cut_never_keeps_tool_result_without_its_use(self):
         messages = [
             {"role": "user", "content": "old context " * 100},
