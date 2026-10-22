@@ -422,14 +422,6 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
 
     def _preflight(self) -> bool:
         try:
-            length = int(self.headers.get("Content-Length", "0") or "0")
-        except (TypeError, ValueError):
-            self._json_response(400, {"error": "Content-Length must be a valid integer."})
-            return False
-        if length < 0:
-            self._json_response(400, {"error": "Content-Length must not be negative."})
-            return False
-        try:
             config = self._config()
         except ValueError as exc:
             self._json_response(500, {"error": str(exc)})
@@ -442,6 +434,14 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             if not supplied or not hmac.compare_digest(supplied, config.gateway_token):
                 self._json_response(401, {"error": "Missing or invalid TokenSaver gateway token."})
                 return False
+        try:
+            length = int(self.headers.get("Content-Length", "0") or "0")
+        except (TypeError, ValueError):
+            self._json_response(400, {"error": "Content-Length must be a valid integer."})
+            return False
+        if length < 0:
+            self._json_response(400, {"error": "Content-Length must not be negative."})
+            return False
         self._request_content_length = length
         self._request_config = config
         return True
