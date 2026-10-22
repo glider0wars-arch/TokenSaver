@@ -19,7 +19,7 @@ from .compressor import estimate_tokens
 # Strong signals only. A slash or a generic modal verb is not enough to promote a line.
 _IMPORTANT = re.compile(
     r"\b(?:error|exception|traceback|failed|failure|regression|decision|decisions|todo|fixme|"
-    r"constraint|requirement|critical|blocker|rollback|security issue|current request|durable decisions|windows compatibility|python\s+3\.\d+)\b|"
+    r"constraint|requirement|critical|blocker|rollback|security issue|windows compatibility|python\s+3\.\d+)\b|"
     r"\b(?:do not|don't|never|must not|should not|cannot|can't|remember this)\b|"
     r"(?:^|[\s:،.!؟])(?:خطا|اشکال|تصمیم|محدودیت|الزام|مهم است|فراموش نکن|انجام نشود)(?=$|[\s:،.!؟])|"
     r"\b(?:tool_use|tool_result|function_call|function_call_output)\b|"
@@ -51,6 +51,8 @@ class GatewayConfig:
     gateway_token: str
     access_log: bool
     upstream_api_key: str
+    tool_output_max_chars: int
+    usage_tee_max_bytes: int
 
 
 def _env_int(name: str, default: int, *, minimum: int = 0, maximum: int | None = None) -> int:
@@ -121,6 +123,8 @@ def load_config() -> GatewayConfig:
         gateway_token=token,
         access_log=access_raw == "1",
         upstream_api_key=upstream_key,
+        tool_output_max_chars=_env_int("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", 4000, minimum=1),
+        usage_tee_max_bytes=_env_int("TOKENSAVER_USAGE_TEE_MAX_BYTES", 1_000_000, minimum=1024, maximum=64 * 1024 * 1024),
     )
 
 
@@ -301,7 +305,7 @@ def _compress_payload_tool_outputs(items: list[Any] | str, kind: str | dict[str,
     for index, owner, key, raw_text in slots:
         cleaned = _ANSI_ESCAPE.sub("", raw_text).replace("\r\n", "\n").replace("\r", "\n")
         if index < protected_start:
-            if cleaned in later:
+            if cleaned in later and len(cleaned.strip()) >= 80:
                 replacement = _TOOL_OUTPUT_REFERENCE
             elif len(cleaned) > max_chars:
                 replacement = _compress_tool_output_text(cleaned, max_chars=max_chars)
@@ -602,6 +606,7 @@ def transform_payload(
     path: str, payload: dict[str, Any], *, keep_recent: int = 8,
     max_summary_chars: int = 3000, min_old_chars: int = 1200,
     min_total_chars: int = 5000, cut_step: int = 4,
+    tool_output_max_chars: int | None = None,
 ) -> tuple[dict[str, Any], dict[str, int | bool]]:
     """Compact supported request formats and leave unrelated payloads unchanged."""
     body = json.loads(json.dumps(payload))
@@ -960,6 +965,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                             min_old_chars=config.min_old_chars,
                             min_total_chars=config.min_total_chars,
                             cut_step=config.cut_step,
+                            tool_output_max_chars=config.tool_output_max_chars,
                         )
                         outgoing = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             except Exception:
@@ -1004,12 +1010,8 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             self.end_headers()
             headers_sent = True
             if has_body:
-                try:
-                    tee_limit = _env_int("TOKENSAVER_USAGE_TEE_MAX_BYTES", 1_000_000, minimum=1024)
-                except ValueError:
-                    tee_limit = 1_000_000
+                tee_limit = config.usage_tee_max_bytes
                 tee = bytearray()
-                tee_overflow = False
                 content_type = upstream.getheader("Content-Type", "")
                 while True:
                     # read1 returns available bytes without waiting to fill a 64 KiB
@@ -1017,17 +1019,16 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                     chunk = upstream.read1(65536)
                     if not chunk:
                         break
-                    if not tee_overflow:
-                        if len(tee) + len(chunk) <= tee_limit:
-                            tee.extend(chunk)
-                        else:
-                            tee_overflow = True
-                            tee.clear()
+                    # Keep a bounded rolling tail so final usage events remain parseable
+                    # even when a long stream exceeds the cap.
+                    tee.extend(chunk)
+                    if len(tee) > tee_limit:
+                        del tee[:len(tee) - tee_limit]
                     self.wfile.write(f"{len(chunk):X}\r\n".encode("ascii"))
                     self.wfile.write(chunk + b"\r\n")
                     self.wfile.flush()
                 self.wfile.write(b"0\r\n\r\n")
-                if not tee_overflow and ("json" in content_type.lower() or "text/event-stream" in content_type.lower()):
+                if "json" in content_type.lower() or "text/event-stream" in content_type.lower():
                     usage = _parse_provider_usage(bytes(tee), content_type)
                     if usage is None:
                         with self.server.stats_lock:  # type: ignore[attr-defined]
