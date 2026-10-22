@@ -407,7 +407,8 @@ def _select_summary_lines(text: str, budget: int) -> str:
             selected.add(index)
             used += len(lines[index]) + 1
     if not selected:
-        return lines[-1][:budget]
+        # Do not turn a truncated fragment into a misleading summary.
+        return lines[-1] if len(lines[-1]) <= budget else ""
     return "\n".join(lines[index] for index in sorted(selected))
 
 
