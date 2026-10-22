@@ -211,8 +211,8 @@ class RollingMemory:
         return {
             "schema_version": 2,
             "project": self.project,
-            "sections": {name: self.sections.get(name, []) for name in CATEGORIES},
-            "recent_turns": self.recent_turns[-max(1, self.max_recent_turns):],
+            "sections": {name: list(self.sections.get(name, [])) for name in CATEGORIES},
+            "recent_turns": [dict(turn) for turn in self.recent_turns[-max(1, self.max_recent_turns):]],
             "max_recent_turns": self.max_recent_turns,
             "max_items_per_category": self.max_items_per_category,
             "max_total_chars": self.max_total_chars,
