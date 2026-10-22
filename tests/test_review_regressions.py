@@ -265,6 +265,23 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertGreater(developer_index, summary_index)
 
 
+    def test_content_text_redacts_nested_binary_and_base64_blocks(self):
+        from tokensaver.proxy import _content_text
+
+        payload = {
+            "content": {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": "A" * 50000},
+            },
+            "metadata": {"binary_data": "B" * 50000},
+        }
+        rendered = _content_text(payload)
+        self.assertLess(len(rendered), 200)
+        self.assertNotIn("AAAA", rendered)
+        self.assertNotIn("BBBB", rendered)
+        self.assertIn("[image omitted]", rendered)
+        self.assertIn("[binary omitted]", rendered)
+
     def test_responses_report_includes_top_level_instructions_in_system_bucket(self):
         payload = {
             "instructions": "Keep the output concise and preserve exact paths.",
