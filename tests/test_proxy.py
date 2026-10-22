@@ -153,7 +153,7 @@ class ProxyTests(unittest.TestCase):
         lines = [f"ordinary entry {i:03d} with padding" for i in range(30)]
         lines[10] = "ERROR: important one"
         lines[20] = "Traceback: important two"
-        compressed = _compress_tool_output_text("\\n".join(lines), max_chars=100, head_lines=2, tail_lines=2)
+        compressed = _compress_tool_output_text("\n".join(lines), max_chars=100, head_lines=2, tail_lines=2)
         self.assertLessEqual(len(compressed), 100)
         self.assertIn("ERROR: important one", compressed)
         self.assertIn("Traceback: important two", compressed)
