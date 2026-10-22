@@ -46,7 +46,15 @@ def main() -> int:
     render.add_argument("path")
     render.add_argument("--no-recent", action="store_true")
 
+    serve = sub.add_parser("serve", help="Start the local API compression gateway")
+    serve.add_argument("--host", default=None)
+    serve.add_argument("--port", type=int, default=None)
+
     args = parser.parse_args()
+    if args.command == "serve":
+        from .proxy import serve as serve_proxy
+        serve_proxy(args.host, args.port)
+        return 0
     if args.command == "compress":
         result = compress_text(_read_input(args.file), deduplicate_lines=not args.keep_duplicates)
         if args.stats:
