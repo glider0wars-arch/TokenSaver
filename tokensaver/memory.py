@@ -255,7 +255,8 @@ def memory_file_lock(path: str | Path, *, stale_after: float = 60.0, timeout: fl
 def build_request(memory: RollingMemory, new_message: str) -> str:
     """Build a prompt from compact memory and one new message without flattening it."""
     sections = memory.render(include_recent=True)
-    message = compress_text(new_message, deduplicate_lines=False).text
+    # The caller’s newest instruction is authoritative: never rewrite its whitespace or code.
+    message = new_message
     parts = []
     if sections:
         parts.append("[COMPRESSED MEMORY]\n" + sections)
