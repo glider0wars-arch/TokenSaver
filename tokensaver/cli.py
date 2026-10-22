@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 
 from .compressor import compress_text
-from .memory import CATEGORIES, RollingMemory, build_request, memory_file_lock
+from .memory import CATEGORIES, RollingMemory, build_request, memory_file_lock\nfrom .preferences import STYLES
 
 
 def _configure_utf8() -> None:
@@ -30,7 +30,7 @@ def _read_input(path: str | None) -> str:
 
 def main() -> int:
     _configure_utf8()
-    parser = argparse.ArgumentParser(prog="tokensaver", description="Local prompt compression and rolling memory.")
+    parser = argparse.ArgumentParser(prog="toknix", description="Toknix: local prompt and context optimization.")
     sub = parser.add_subparsers(dest="command", required=True)
 
     cp = sub.add_parser("compress", help="Normalize whitespace while preserving code formatting")
@@ -64,7 +64,7 @@ def main() -> int:
 
     request = sub.add_parser("request", help="Build a prompt from compact memory and a new message")
     request.add_argument("path", help="Rolling-memory JSON file")
-    request.add_argument("message", help="New user message")
+    request.add_argument("message", help="New user message")\n    request.add_argument("--style", choices=STYLES, default="adaptive", help="Non-binding response detail preference (default: adaptive)")
 
     render = sub.add_parser("memory-render", help="Print compact memory to stdout")
     render.add_argument("path")
@@ -87,7 +87,7 @@ def main() -> int:
             request = urllib.request.Request(args.url, headers={"Accept": "application/json"})
             with urllib.request.urlopen(request, timeout=5) as response:
                 stats = json.loads(response.read().decode("utf-8"))
-            print("TokenSaver usage report")
+            print("Toknix usage report")
             print("Provider usage: MEASURED from upstream response usage objects")
             print("Context breakdown: ESTIMATED from request text; not provider tokenizer counts")
             print("")
@@ -169,7 +169,7 @@ def main() -> int:
         if args.command == "request":
             with memory_file_lock(args.path):
                 memory = RollingMemory.load(args.path)
-                prompt = build_request(memory, args.message)
+                prompt = build_request(memory, args.message, response_style=args.style)
                 # Always emit the prompt, even if persisting the new turn later fails.
                 print(prompt)
                 memory.add_turn("user", args.message)
@@ -186,7 +186,7 @@ def main() -> int:
             return 0
         return 2
     except (OSError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
-        print(f"TokenSaver error: {exc}", file=sys.stderr)
+        print(f"Toknix error: {exc}", file=sys.stderr)
         return 2
 
 
