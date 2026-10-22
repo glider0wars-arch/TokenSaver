@@ -287,7 +287,7 @@ def _compress_payload_tool_outputs(items: list[Any] | str, kind: str | dict[str,
         else:
             items, kind = payload.get("messages", []), "chat"
     if max_chars is None:
-        max_chars = _env_int("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", 4000, minimum=1)
+        max_chars = _DEFAULT_TOOL_OUTPUT_MAX_CHARS
     if not isinstance(items, list) or not isinstance(kind, str):
         raise ValueError("Expected a list of request items and a supported tool-output kind.")
     if max_chars < 1:
@@ -622,7 +622,7 @@ def transform_payload(
     body = json.loads(json.dumps(payload))
     empty: dict[str, int | bool] = _stats(0, 0)
     if tool_output_max_chars is None:
-        tool_output_max_chars = _env_int("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", 4000, minimum=1)
+        tool_output_max_chars = _DEFAULT_TOOL_OUTPUT_MAX_CHARS
     # Do not mutate any cache-marked payload: edits may invalidate provider caches.
     if _contains_cache_control(body):
         return body, empty
