@@ -26,7 +26,7 @@
       },
       {
         "role": "user",
-        "content": "We saw duplicate output references replace the literal response 'ok'. That makes the conversation less useful, so short outputs must stay literal."
+        "content": "Decision: Short duplicate outputs will remain unchanged; references are only useful when they actually reduce context."
       },
       {
         "role": "assistant",
@@ -42,7 +42,7 @@
       },
       {
         "role": "user",
-        "content": "The old cache-aware estimate says compaction can increase cost for mixed-language requests. Keep that caveat visible."
+        "content": "Never claim cost savings without measuring actual provider usage and cache creation costs."
       },
       {
         "role": "assistant",
@@ -58,7 +58,7 @@
       },
       {
         "role": "user",
-        "content": "The stream parser lost usage metadata when a response crossed one megabyte. Test a usage event at the end of a larger stream."
+        "content": "Regression: test a usage event at the end of a larger stream."
       },
       {
         "role": "assistant",
