@@ -224,6 +224,7 @@ class RollingMemory:
 def memory_file_lock(path: str | Path, *, stale_after: float = 60.0, timeout: float = 10.0):
     """Cross-platform lock for a memory file's read-modify-write transaction."""
     target = Path(path).expanduser()
+    target.parent.mkdir(parents=True, exist_ok=True)
     lock_path = target.with_name(target.name + ".lock")
     deadline = time.monotonic() + timeout
     fd = None
