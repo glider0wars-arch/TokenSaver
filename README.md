@@ -75,6 +75,46 @@ The gateway does not call a second model to summarize old messages, so it adds n
 
 Token counts differ by provider and tokenizer. Compare actual usage metadata when available. Otherwise, report that savings are estimated rather than measured. Input, output, cached, and reasoning tokens may be counted differently by each provider.
 
+## Benchmarks, tool output, and usage reporting
+
+Run the offline benchmark with Python 3.10+ and no extra dependencies:
+
+    python -m benchmarks.run
+
+The benchmark replays fixtures for a coding agent with long tool logs, a long conversation, and mixed Persian/English messages. It reports characters, rough token estimates, estimated input-cost scenarios, and retention of exact “needle” facts. The command exits non-zero if retention falls below 95%. These figures are estimates, not provider billing measurements.
+
+The cache-aware table shows a baseline estimate, a compaction estimate with a stable cacheable prefix, and a worst-case scenario where compaction breaks the cache. Configure the cached-input price ratio (default 0.1), assumed cacheable fraction, input price, and retention threshold with CLI options. Actual cache behavior depends on provider-specific rules and exact prefix stability.
+
+Optional live usage checks can send fixture requests to an OpenAI-compatible endpoint. They are opt-in and may incur charges:
+
+    TOKENSAVER_LIVE_API_URL=https://api.openai.com/v1/chat/completions
+    TOKENSAVER_LIVE_API_KEY=... python -m benchmarks.run --live
+
+Keys are read only from the environment and are never written by the benchmark. Do not use a production key for tests.
+
+The gateway compresses oversized historical tool outputs conservatively. It strips ANSI control codes, summarizes repeated lines, retains head/tail context and important error/constraint lines, and can refer to identical earlier outputs. The newest tool cycle is protected by default. Set `TOKENSAVER_TOOL_OUTPUT_MAX_CHARS` to change the threshold; set `TOKENSAVER_COMPRESS_LATEST_TOOL_CYCLE=1` only if you explicitly want the newest cycle included.
+
+Provider-reported usage is accumulated in `/stats` when upstream JSON or SSE responses include usage metadata and the bounded tee buffer can parse the response. Set `TOKENSAVER_USAGE_TEE_MAX_BYTES` to adjust the default 1 MiB measurement cap. If the body exceeds the cap, usage is skipped rather than buffering the response or delaying passthrough.
+
+Print a readable measured-vs-estimated report with:
+
+    tokensaver report
+
+Provider token totals are measured values from upstream usage objects. Context-category breakdowns are estimated character counts, and tool output is a subset of history rather than a separate additive bucket.
+
+## When this does NOT help
+
+- It does not intercept traffic from the ChatGPT, Claude, or Grok subscription apps. Only requests explicitly routed through the gateway are affected.
+- It adds little value when a client or coding agent already compacts the same context well.
+- Extractive compaction can lose nuance. A high needle-retention score is not proof that answer quality is unchanged.
+- Short requests or histories that do not cross the configured thresholds may remain unchanged.
+- Rewriting an old prompt prefix can reduce cache hits. Fewer estimated tokens can still cost more if the cache benefit lost is larger than the input reduction.
+- The token estimator is heuristic. Provider-reported usage is preferred whenever available.
+
+## Results
+
+Run `python -m benchmarks.run` to generate the Markdown table from the recorded fixtures. Only add numeric results here after the benchmark has completed successfully; never substitute unmeasured savings claims.
+
 ## License
 
 No license has been added yet. Until one is added, normal copyright restrictions apply.
