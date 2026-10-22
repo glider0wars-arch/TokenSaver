@@ -511,9 +511,9 @@ def compact_anthropic_messages(
     summary = _select_summary_lines(old_text, max_summary_chars)
     if not summary:
         return messages, _stats(total, total)
-    summary_note = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\\n" + summary
+    summary_note = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\n" + summary
     if isinstance(system, str):
-        merged_system = (system + "\\n\\n" + summary_note).strip()
+        merged_system = (system + "\n\n" + summary_note).strip()
     elif isinstance(system, list):
         merged_system = _content_text(system + [{"type": "text", "text": summary_note}])
     else:
