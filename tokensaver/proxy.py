@@ -307,23 +307,19 @@ def compact_anthropic_messages(
     if _contains_cache_control(system) or _contains_cache_control(conversation[:cut]):
         return messages, _stats(total, total)
     uses, results = _anthropic_pair_ids(conversation)
-    # Keep every retained tool_result paired with its tool_use. If the cut separates
-    # them, move it back to the user turn before the tool_use and re-check.
+    # Keep every retained tool_result paired with its tool_use. If a cut lands
+    # inside a cycle, move it past the result so both messages become old context.
     while cut < len(conversation):
-        broken = next(((tool_id, use_i) for tool_id, use_i in uses.items()
-                       if use_i < cut and tool_id in results and results[tool_id] >= cut), None)
-        if broken:
-            _, use_i = broken
-            prior_users = [i for i in range(use_i) if conversation[i].get("role") == "user"]
-            if not prior_users:
-                return messages, _stats(total, total)
-            cut = prior_users[-1]
-            continue
         if conversation[cut].get("role") != "user":
-            prior_users = [i for i in range(cut) if conversation[i].get("role") == "user"]
-            if not prior_users:
+            cut += 1
+            continue
+        broken = next(((tool_id, result_i) for tool_id, result_i in results.items()
+                       if result_i >= cut and (tool_id not in uses or uses[tool_id] < cut)), None)
+        if broken:
+            tool_id, result_i = broken
+            if tool_id not in uses:
                 return messages, _stats(total, total)
-            cut = prior_users[-1]
+            cut = result_i + 1
             continue
         break
     if cut >= len(conversation):
