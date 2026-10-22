@@ -1,0 +1,88 @@
+{
+  "name": "coding-agent-long-tool-logs",
+  "path": "/v1/chat/completions",
+  "payload": {
+    "model": "benchmark-model",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a coding agent. Follow project constraints exactly and report uncertainty."
+      },
+      {
+        "role": "user",
+        "content": "Constraint: never commit to main. Preserve tool-call pairing and run the full test suite. Decision: keep Python 3.10 compatibility and standard-library-only runtime dependencies."
+      },
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call-read-1",
+            "type": "function",
+            "function": {
+              "name": "read_file",
+              "arguments": "{\"path\":\"tokensaver/proxy.py\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call-read-1",
+        "content": "INFO worker 0: scanned tokensaver/proxy.py line 1; cache bucket stable; request_id=req-1000\nINFO worker 1: scanned tokensaver/proxy.py line 2; cache bucket stable; request_id=req-1001\nINFO worker 2: scanned tokensaver/proxy.py line 3; cache bucket stable; request_id=req-1002\nINFO worker 3: scanned tokensaver/proxy.py line 4; cache bucket stable; request_id=req-1003\nINFO worker 4: scanned tokensaver/proxy.py line 5; cache bucket stable; request_id=req-1004\nINFO worker 5: scanned tokensaver/proxy.py line 6; cache bucket stable; request_id=req-1005\nINFO worker 6: scanned tokensaver/proxy.py line 7; cache bucket stable; request_id=req-1006\nINFO worker 7: scanned tokensaver/proxy.py line 8; cache bucket stable; request_id=req-1007\nINFO worker 0: scanned tokensaver/proxy.py line 9; cache bucket stable; request_id=req-1008\nINFO worker 1: scanned tokensaver/proxy.py line 10; cache bucket stable; request_id=req-1009\nINFO worker 2: scanned tokensaver/proxy.py line 11; cache bucket stable; request_id=req-1010\nINFO worker 3: scanned tokensaver/proxy.py line 12; cache bucket stable; request_id=req-1011\nINFO worker 4: scanned tokensaver/proxy.py line 13; cache bucket stable; request_id=req-1012\nINFO worker 5: scanned tokensaver/proxy.py line 14; cache bucket stable; request_id=req-1013\nINFO worker 6: scanned tokensaver/proxy.py line 15; cache bucket stable; request_id=req-1014\nINFO worker 7: scanned tokensaver/proxy.py line 16; cache bucket stable; request_id=req-1015\nINFO worker 0: scanned tokensaver/proxy.py line 17; cache bucket stable; request_id=req-1016\nINFO worker 1: scanned tokensaver/proxy.py line 18; cache bucket stable; request_id=req-1017\nINFO worker 2: scanned tokensaver/proxy.py line 19; cache bucket stable; request_id=req-1018\nINFO worker 3: scanned tokensaver/proxy.py line 20; cache bucket stable; request_id=req-1019\nINFO worker 4: scanned tokensaver/proxy.py line 21; cache bucket stable; request_id=req-1020\nINFO worker 5: scanned tokensaver/proxy.py line 22; cache bucket stable; request_id=req-1021\nINFO worker 6: scanned tokensaver/proxy.py line 23; cache bucket stable; request_id=req-1022\nINFO worker 7: scanned tokensaver/proxy.py line 24; cache bucket stable; request_id=req-1023\nINFO worker 0: scanned tokensaver/proxy.py line 25; cache bucket stable; request_id=req-1024\nINFO worker 1: scanned tokensaver/proxy.py line 26; cache bucket stable; request_id=req-1025\nINFO worker 2: scanned tokensaver/proxy.py line 27; cache bucket stable; request_id=req-1026\nINFO worker 3: scanned tokensaver/proxy.py line 28; cache bucket stable; request_id=req-1027\nINFO worker 4: scanned tokensaver/proxy.py line 29; cache bucket stable; request_id=req-1028\nINFO worker 5: scanned tokensaver/proxy.py line 30; cache bucket stable; request_id=req-1029\nINFO worker 6: scanned tokensaver/proxy.py line 31; cache bucket stable; request_id=req-1030\nINFO worker 7: scanned tokensaver/proxy.py line 32; cache bucket stable; request_id=req-1031\nINFO worker 0: scanned tokensaver/proxy.py line 33; cache bucket stable; request_id=req-1032\nINFO worker 1: scanned tokensaver/proxy.py line 34; cache bucket stable; request_id=req-1033\nINFO worker 2: scanned tokensaver/proxy.py line 35; cache bucket stable; request_id=req-1034\nINFO worker 3: scanned tokensaver/proxy.py line 36; cache bucket stable; request_id=req-1035\nINFO worker 4: scanned tokensaver/proxy.py line 37; cache bucket stable; request_id=req-1036\nINFO worker 5: scanned tokensaver/proxy.py line 38; cache bucket stable; request_id=req-1037\nINFO worker 6: scanned tokensaver/proxy.py line 39; cache bucket stable; request_id=req-1038\nINFO worker 7: scanned tokensaver/proxy.py line 40; cache bucket stable; request_id=req-1039\nINFO worker 0: scanned tokensaver/proxy.py line 41; cache bucket stable; request_id=req-1040\nINFO worker 1: scanned tokensaver/proxy.py line 42; cache bucket stable; request_id=req-1041\nINFO worker 2: scanned tokensaver/proxy.py line 43; cache bucket stable; request_id=req-1042\nINFO worker 3: scanned tokensaver/proxy.py line 44; cache bucket stable; request_id=req-1043\nINFO worker 4: scanned tokensaver/proxy.py line 45; cache bucket stable; request_id=req-1044\nINFO worker 5: scanned tokensaver/proxy.py line 46; cache bucket stable; request_id=req-1045\nINFO worker 6: scanned tokensaver/proxy.py line 47; cache bucket stable; request_id=req-1046\nINFO worker 7: scanned tokensaver/proxy.py line 48; cache bucket stable; request_id=req-1047\nINFO worker 0: scanned tokensaver/proxy.py line 49; cache bucket stable; request_id=req-1048\nINFO worker 1: scanned tokensaver/proxy.py line 50; cache bucket stable; request_id=req-1049\nINFO worker 2: scanned tokensaver/proxy.py line 51; cache bucket stable; request_id=req-1050\nINFO worker 3: scanned tokensaver/proxy.py line 52; cache bucket stable; request_id=req-1051\nINFO worker 4: scanned tokensaver/proxy.py line 53; cache bucket stable; request_id=req-1052\nINFO worker 5: scanned tokensaver/proxy.py line 54; cache bucket stable; request_id=req-1053\nINFO worker 6: scanned tokensaver/proxy.py line 55; cache bucket stable; request_id=req-1054\nINFO worker 7: scanned tokensaver/proxy.py line 56; cache bucket stable; request_id=req-1055\nINFO worker 0: scanned tokensaver/proxy.py line 57; cache bucket stable; request_id=req-1056\nINFO worker 1: scanned tokensaver/proxy.py line 58; cache bucket stable; request_id=req-1057\nINFO worker 2: scanned tokensaver/proxy.py line 59; cache bucket stable; request_id=req-1058\nINFO worker 3: scanned tokensaver/proxy.py line 60; cache bucket stable; request_id=req-1059\nINFO worker 4: scanned tokensaver/proxy.py line 61; cache bucket stable; request_id=req-1060\nINFO worker 5: scanned tokensaver/proxy.py line 62; cache bucket stable; request_id=req-1061\nINFO worker 6: scanned tokensaver/proxy.py line 63; cache bucket stable; request_id=req-1062\nINFO worker 7: scanned tokensaver/proxy.py line 64; cache bucket stable; request_id=req-1063\nINFO worker 0: scanned tokensaver/proxy.py line 65; cache bucket stable; request_id=req-1064\nINFO worker 1: scanned tokensaver/proxy.py line 66; cache bucket stable; request_id=req-1065\nINFO worker 2: scanned tokensaver/proxy.py line 67; cache bucket stable; request_id=req-1066\nINFO worker 3: scanned tokensaver/proxy.py line 68; cache bucket stable; request_id=req-1067\nINFO worker 4: scanned tokensaver/proxy.py line 69; cache bucket stable; request_id=req-1068\nINFO worker 5: scanned tokensaver/proxy.py line 70; cache bucket stable; request_id=req-1069\nTraceback (most recent call last):\n  File \"tokensaver/proxy.py\", line 214, in _forward\nValueError: invalid config at proxy.py line 214\nError: upstream returned status code 502\nDecision: preserve tool-call pairing\nConstraint: never commit to main"
+      },
+      {
+        "role": "assistant",
+        "content": "Decision: fix the cut logic without changing the public API."
+      },
+      {
+        "role": "user",
+        "content": "Constraint: keep exact error messages and paths. The failing file is tokensaver/proxy.py."
+      },
+      {
+        "role": "assistant",
+        "content": "The current hypothesis is that a tool output became detached from its call."
+      },
+      {
+        "role": "user",
+        "content": "Check the tests and preserve this path: tests/test_proxy.py"
+      },
+      {
+        "role": "assistant",
+        "content": "The next step is a focused regression test, then the full matrix."
+      },
+      {
+        "role": "user",
+        "content": "Remember: no new runtime dependencies and no secrets in logs."
+      },
+      {
+        "role": "assistant",
+        "content": "The tool log contains repeated informational lines, but the traceback and error are important."
+      },
+      {
+        "role": "user",
+        "content": "Current task: repair the tool alignment bug and keep Windows support."
+      },
+      {
+        "role": "assistant",
+        "content": "I will retain the exact exception and the file path in the handoff."
+      },
+      {
+        "role": "user",
+        "content": "Final constraint: do not claim savings until measured."
+      },
+      {
+        "role": "assistant",
+        "content": "Understood. I will compare the original and compacted request."
+      }
+    ]
+  },
+  "needles": [
+    "Constraint: never commit to main",
+    "Decision: keep Python 3.10 compatibility",
+    "tokensaver/proxy.py",
+    "ValueError: invalid config at proxy.py line 214",
+    "status code 502",
+    "tests/test_proxy.py"
+  ]
+}
