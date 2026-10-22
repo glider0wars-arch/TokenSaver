@@ -246,14 +246,14 @@ def compact_chat_messages(
     cut = _bucketed_cut(len(conversation), keep_recent, cut_step)
     if cut <= 0:
         return messages, _stats(original_chars, original_chars)
-    # If the cut starts at a tool reply, include the assistant request that owns it.
+    # Never retain a tool reply without the assistant call that owns it.
     while cut < len(conversation) and conversation[cut].get("role") == "tool":
         tool_id = str(conversation[cut].get("tool_call_id", ""))
         call_index = next((i for i in range(cut - 1, -1, -1)
                            if any(isinstance(call, dict) and str(call.get("id", "")) == tool_id
                                   for call in (conversation[i].get("tool_calls") or []))), None)
         if call_index is None:
-            break
+            return messages, _stats(original_chars, original_chars)
         cut = call_index
     old, recent = conversation[:cut], conversation[cut:]
     if _contains_cache_control(static) or _contains_cache_control(old):
@@ -373,14 +373,14 @@ def compact_response_input(
         return items, _stats(before, before)
     if _contains_cache_control(static) or _contains_cache_control(conversation[:cut]):
         return items, _stats(before, before)
-    # Keep function_call_output paired with the function_call that produced it.
+    # Never retain a function output without its matching call.
     while cut < len(conversation) and conversation[cut].get("type") == "function_call_output":
         call_id = str(conversation[cut].get("call_id", ""))
         call_index = next((i for i in range(cut - 1, -1, -1)
                            if conversation[i].get("type") == "function_call"
                            and str(conversation[i].get("call_id", "")) == call_id), None)
         if call_index is None:
-            break
+            return items, _stats(before, before)
         cut = call_index
     # A reasoning item belongs with the item immediately following it.
     while cut > 0 and conversation[cut - 1].get("type") == "reasoning":
@@ -558,7 +558,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                         cut_step=config.cut_step,
                     )
                     outgoing = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-            except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError):
+            except Exception:
                 # Preserve upstream behavior but make transform failures visible in /stats.
                 with self.server.stats_lock:  # type: ignore[attr-defined]
                     self.server.stats["transform_errors"] = self.server.stats.get("transform_errors", 0) + 1  # type: ignore[attr-defined]
@@ -587,11 +587,11 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             headers.pop("Authorization", None)
         headers_sent = False
         try:
-            conn.request(self.command, target_path, body=outgoing if self.command not in {"GET", "HEAD"} else None, headers=headers)
+            conn.request(self.command, target_path, body=outgoing if self.command not in {"GET", "HEAD", "OPTIONS"} else None, headers=headers)
             upstream = conn.getresponse()
             self.send_response(upstream.status, upstream.reason)
             for key, value in upstream.getheaders():
-                if key.lower() not in _HOP_BY_HOP:
+                if key.lower() not in _HOP_BY_HOP and not (upstream.status == 204 and key.lower() in {"content-length", "transfer-encoding"}):
                     self.send_header(key, value)
             has_body = self.command != "HEAD" and upstream.status not in {204, 304}
             if has_body:
