@@ -71,8 +71,11 @@ def load_config() -> GatewayConfig:
     try:
         parsed = urlsplit(upstream)
         hostname = parsed.hostname
+        upstream_port = parsed.port
     except ValueError as exc:
-        raise ValueError("TOKENSAVER_UPSTREAM_BASE_URL is not a valid URL.") from exc
+        raise ValueError(f"TOKENSAVER_UPSTREAM_BASE_URL is not a valid URL or port: {exc}") from exc
+    if upstream_port == 0:
+        raise ValueError("TOKENSAVER_UPSTREAM_BASE_URL port must be between 1 and 65535.")
     if parsed.scheme not in {"http", "https"} or not hostname or parsed.username or parsed.password:
         raise ValueError("TOKENSAVER_UPSTREAM_BASE_URL must be an http(s) origin without embedded credentials.")
     if parsed.query or parsed.fragment:
@@ -637,11 +640,16 @@ def _payload_breakdown(path: str, payload: dict[str, Any], keep_recent: int) -> 
 
 
 def _usage_from_object(value: Any) -> dict[str, int] | None:
+    """Normalize common OpenAI-compatible and Anthropic usage payloads."""
     if not isinstance(value, dict):
         return None
     usage = value.get("usage")
-    if not isinstance(usage, dict) and isinstance(value.get("response"), dict):
-        usage = value["response"].get("usage")
+    if not isinstance(usage, dict):
+        for parent_key in ("response", "message"):
+            parent = value.get(parent_key)
+            if isinstance(parent, dict) and isinstance(parent.get("usage"), dict):
+                usage = parent["usage"]
+                break
     if not isinstance(usage, dict):
         return None
     try:
@@ -652,10 +660,24 @@ def _usage_from_object(value: Any) -> dict[str, int] | None:
             cached = max(cached, int(prompt_details.get("cached_tokens", 0) or 0))
         if isinstance(input_details, dict):
             cached = max(cached, int(input_details.get("cached_tokens", 0) or 0))
+        cache_creation = int(usage.get("cache_creation_input_tokens", usage.get("cache_write_tokens", 0)) or 0)
+        if isinstance(input_details, dict):
+            cache_creation = max(cache_creation, int(input_details.get("cache_write_tokens", 0) or 0))
+            write_details = input_details.get("cache_write_tokens_details", {})
+            if isinstance(write_details, dict):
+                cache_creation = max(cache_creation, sum(
+                    max(0, int(v or 0)) for v in write_details.values()
+                    if isinstance(v, (int, float, str))
+                ))
+        raw_input = max(0, int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0))
+        # Anthropic reports cache reads/writes separately from the uncached input count.
+        if "cache_read_input_tokens" in usage or "cache_creation_input_tokens" in usage:
+            raw_input += max(0, cached) + max(0, cache_creation)
         return {
-            "input": max(0, int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0)),
+            "input": raw_input,
             "output": max(0, int(usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0)),
             "cached_input": max(0, cached),
+            "cache_creation_input": max(0, cache_creation),
         }
     except (TypeError, ValueError):
         return None
@@ -664,7 +686,8 @@ def _usage_from_object(value: Any) -> dict[str, int] | None:
 def _parse_provider_usage(raw: bytes, content_type: str) -> dict[str, int] | None:
     text_value = raw.decode("utf-8", errors="replace")
     if "text/event-stream" in content_type.lower():
-        found = None
+        totals = {"input": 0, "output": 0, "cached_input": 0, "cache_creation_input": 0}
+        found = False
         for line in text_value.splitlines():
             if not line.startswith("data:"):
                 continue
@@ -675,9 +698,14 @@ def _parse_provider_usage(raw: bytes, content_type: str) -> dict[str, int] | Non
                 usage = _usage_from_object(json.loads(data))
             except json.JSONDecodeError:
                 continue
-            if usage is not None:
-                found = usage
-        return found
+            if usage is None:
+                continue
+            found = True
+            # Providers may split usage over several events (e.g. Anthropic message_start
+            # and message_delta). These are partial snapshots, not additive deltas.
+            for key in totals:
+                totals[key] = max(totals[key], usage.get(key, 0))
+        return totals if found else None
     try:
         return _usage_from_object(json.loads(text_value))
     except json.JSONDecodeError:
@@ -700,6 +728,7 @@ def _usage_from_response(raw: bytes, *, is_sse: bool = False) -> dict[str, int] 
         "provider_input_tokens": usage["input"],
         "provider_output_tokens": usage["output"],
         "provider_cached_input_tokens": usage["cached_input"],
+        "provider_cache_creation_input_tokens": usage["cache_creation_input"],
     }
 
 
@@ -710,7 +739,8 @@ def _record_provider_usage(server: Any, usage: dict[str, int] | None) -> None:
         stats = server.stats
         for key, value in (("provider_input_tokens", usage["input"]),
                            ("provider_output_tokens", usage["output"]),
-                           ("provider_cached_input_tokens", usage["cached_input"])):
+                           ("provider_cached_input_tokens", usage["cached_input"]),
+                           ("provider_cache_creation_input_tokens", usage["cache_creation_input"])):
             stats[key] = stats.get(key, 0) + value
         stats["provider_usage_responses"] = stats.get("provider_usage_responses", 0) + 1
 
@@ -772,7 +802,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                 stats.setdefault(category + "_chars", 0)
                 stats.setdefault("estimated_" + category + "_tokens", 0)
             for key in ("provider_input_tokens", "provider_output_tokens", "provider_cached_input_tokens",
-                        "provider_usage_responses", "provider_usage_parse_errors"):
+                        "provider_cache_creation_input_tokens", "provider_usage_responses", "provider_usage_parse_errors"):
                 stats.setdefault(key, 0)
             return self._json_response(200, stats)
         self._forward()
@@ -897,7 +927,9 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                 tee_overflow = False
                 content_type = upstream.getheader("Content-Type", "")
                 while True:
-                    chunk = upstream.read(65536)
+                    # read1 returns available bytes without waiting to fill a 64 KiB
+                    # buffer, which is essential for low-latency SSE passthrough.
+                    chunk = upstream.read1(65536)
                     if not chunk:
                         break
                     if not tee_overflow:
@@ -957,8 +989,8 @@ def serve(host: str | None = None, port: int | None = None) -> None:
         "estimated_system_tokens": 0, "estimated_old_history_tokens": 0,
         "estimated_recent_turns_tokens": 0, "estimated_tool_outputs_tokens": 0,
         "provider_input_tokens": 0, "provider_output_tokens": 0,
-        "provider_cached_input_tokens": 0, "provider_usage_responses": 0,
-        "provider_usage_parse_errors": 0,
+        "provider_cached_input_tokens": 0, "provider_cache_creation_input_tokens": 0,
+        "provider_usage_responses": 0, "provider_usage_parse_errors": 0,
     }  # type: ignore[attr-defined]
     print(f"TokenSaver Gateway listening on http://{config.host}:{config.port}")
     print("Health: /health | Stats: /stats | Ctrl+C to stop")
