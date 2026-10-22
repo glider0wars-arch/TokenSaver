@@ -392,6 +392,12 @@ def compact_chat_messages(
     """Compact older chat turns while preserving stable bucketed prefixes."""
     if not isinstance(messages, list) or keep_recent < 1 or max_summary_chars < 100 or cut_step < 1:
         raise ValueError("Invalid messages or compression settings")
+    if any(not isinstance(item, dict) for item in messages):
+        original_chars = sum(
+            len(_message_text(item)) if isinstance(item, dict) else len(_content_text(item))
+            for item in messages
+        )
+        return messages, _stats(original_chars, original_chars)
     static: list[dict[str, Any]] = []
     conversation: list[dict[str, Any]] = []
     seen_conversation = False
@@ -462,8 +468,16 @@ def compact_anthropic_messages(
     min_total_chars: int = 5000, cut_step: int = 4,
 ) -> tuple[list[Any], dict[str, int | bool]]:
     """Compact Anthropic Messages while keeping tool_use/tool_result pairs intact."""
+    if not isinstance(messages, list) or keep_recent < 1 or max_summary_chars < 100 or cut_step < 1:
+        raise ValueError("Invalid Anthropic messages or compression settings")
+    if any(not isinstance(item, dict) for item in messages):
+        total = len(_content_text(system)) + sum(
+            len(_message_text(item)) if isinstance(item, dict) else len(_content_text(item))
+            for item in messages
+        )
+        return messages, _stats(total, total)
     static: list[dict[str, Any]] = []
-    conversation = [m for m in messages if isinstance(m, dict)]
+    conversation = list(messages)
     total = len(_content_text(system)) + sum(len(_message_text(m)) for m in conversation)
     if total <= min_total_chars or len(conversation) <= keep_recent:
         return messages, _stats(total, total)
@@ -522,6 +536,12 @@ def compact_response_input(
     """Compact Responses API input without splitting reasoning from its next item."""
     if not isinstance(items, list) or keep_recent < 1 or max_summary_chars < 100 or cut_step < 1:
         raise ValueError("Invalid input items or compression settings")
+    if any(not isinstance(item, dict) for item in items):
+        before = sum(
+            len(_response_item_text(item)) if isinstance(item, dict) else len(_content_text(item))
+            for item in items
+        )
+        return items, _stats(before, before)
     static: list[dict[str, Any]] = []
     conversation: list[dict[str, Any]] = []
     seen_conversation = False
