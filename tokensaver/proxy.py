@@ -1,6 +1,7 @@
 """Local API gateway with conservative, bucketed context compaction."""
 from __future__ import annotations
 
+import copy
 import hmac
 import http.client
 import json
@@ -17,8 +18,8 @@ from .compressor import estimate_tokens
 
 # Strong signals only. A slash or a generic modal verb is not enough to promote a line.
 _IMPORTANT = re.compile(
-    r"\b(?:error|exception|traceback|failed|failure|regression|decision|todo|fixme|"
-    r"constraint|requirement|critical|blocker|rollback|security issue)\b|"
+    r"\b(?:error|exception|traceback|failed|failure|regression|decision|decisions|todo|fixme|"
+    r"constraint|requirement|critical|blocker|rollback|security issue|current request|durable decisions|windows compatibility|python\s+3\.\d+)\b|"
     r"\b(?:do not|don't|never|must not|should not|cannot|can't|remember this)\b|"
     r"(?:^|[\s:،.!؟])(?:خطا|اشکال|تصمیم|محدودیت|الزام|مهم است|فراموش نکن|انجام نشود)(?=$|[\s:،.!؟])|"
     r"\b(?:tool_use|tool_result|function_call|function_call_output)\b|"
@@ -120,114 +121,6 @@ def load_config() -> GatewayConfig:
     )
 
 
-
-_ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-
-
-def _compress_output_text(text: str, max_chars: int, *, head_lines: int = 12, tail_lines: int = 12) -> str:
-    """Compress verbose tool output while retaining errors and head/tail context."""
-    cleaned = _ANSI_ESCAPE.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
-    lines = cleaned.splitlines()
-    collapsed: list[str] = []
-    i = 0
-    while i < len(lines):
-        j = i + 1
-        while j < len(lines) and lines[j] == lines[i]:
-            j += 1
-        count = j - i
-        collapsed.append(lines[i] if count == 1 else f"{lines[i]} (repeated x{count})")
-        i = j
-    if len("\n".join(collapsed)) <= max_chars:
-        return "\n".join(collapsed)
-    selected = set(range(min(head_lines, len(collapsed))))
-    selected.update(range(max(0, len(collapsed) - tail_lines), len(collapsed)))
-    selected.update(i for i, line in enumerate(collapsed) if _IMPORTANT.search(line))
-    ordered = sorted(selected)
-    out: list[str] = []
-    previous = -1
-    for index in ordered:
-        if previous >= 0 and index > previous + 1:
-            out.append(f"[{index - previous - 1} lines omitted]")
-        out.append(collapsed[index])
-        previous = index
-    result = "\n".join(out)
-    if len(result) <= max_chars:
-        return result
-    # Important lines take priority; trim only non-important head/tail lines.
-    important = [line for line in collapsed if _IMPORTANT.search(line)]
-    essential = "\n".join(important)
-    if len(essential) >= max_chars:
-        return essential
-    remaining = max_chars - len(essential) - 24
-    if remaining <= 0:
-        return essential
-    head = "\n".join(collapsed[:head_lines])
-    tail = "\n".join(collapsed[-tail_lines:])
-    context = (head + "\n[output truncated]\n" + tail)[:remaining]
-    return essential + "\n[N lines omitted]\n" + context
-
-
-def _compress_payload_tool_outputs(path: str, body: dict[str, Any]) -> None:
-    """Compress older tool outputs but protect the newest tool cycle by default."""
-    try:
-        max_chars = max(256, int(os.getenv("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", "4000")))
-    except ValueError:
-        max_chars = 4000
-    if os.getenv("TOKENSAVER_COMPRESS_LATEST_TOOL_CYCLE", "0") == "1":
-        protect_latest = False
-    else:
-        protect_latest = True
-    key = "input" if path.endswith("/responses") and isinstance(body.get("input"), list) else "messages"
-    values = body.get(key)
-    if not isinstance(values, list):
-        return
-    entries: list[tuple[int, Any, Any, str]] = []
-    call_indices: list[int] = []
-    for index, item in enumerate(values):
-        if not isinstance(item, dict):
-            continue
-        if item.get("tool_calls"):
-            call_indices.append(index)
-        if isinstance(item.get("content"), list):
-            for block_index, block in enumerate(item["content"]):
-                if not isinstance(block, dict):
-                    continue
-                if block.get("type") == "tool_use":
-                    call_indices.append(index)
-                if block.get("type") == "tool_result" and isinstance(block.get("content"), str):
-                    entries.append((index, item, block_index, block["content"]))
-        elif item.get("role") == "tool" and isinstance(item.get("content"), str):
-            entries.append((index, item, "content", item["content"]))
-        if item.get("type") == "function_call":
-            call_indices.append(index)
-        if item.get("type") == "function_call_output" and isinstance(item.get("output"), str):
-            entries.append((index, item, "output", item["output"]))
-    if not entries:
-        return
-    output_indices = [entry[0] for entry in entries]
-    latest_cycle_start = max(call_indices) if call_indices else max(output_indices)
-    if not protect_latest:
-        latest_cycle_start = len(values) + 1
-    last_for_text: dict[str, int] = {}
-    for index, _, _, raw in entries:
-        if not _IMPORTANT.search(raw):
-            last_for_text[raw] = index
-    for index, container, key_or_block, raw in entries:
-        if index >= latest_cycle_start:
-            continue
-        if len(raw) <= max_chars and last_for_text.get(raw, index) <= index:
-            continue
-        replacement = raw
-        if last_for_text.get(raw, index) > index and not _IMPORTANT.search(raw):
-            replacement = f"[duplicate tool output; repeated at message {last_for_text[raw] + 1}]"
-        elif len(raw) > max_chars:
-            replacement = _compress_output_text(raw, max_chars)
-        if isinstance(key_or_block, int):
-            container["content"][key_or_block]["content"] = replacement
-        else:
-            container[key_or_block] = replacement
-
-
 def _content_text(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -276,6 +169,123 @@ def _message_text(message: dict[str, Any]) -> str:
     if extras:
         body += ("\n" if body else "") + "\n".join(extras)
     return f"{role}: {body}".strip()
+
+
+
+_ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+_DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
+_TOOL_OUTPUT_REFERENCE = "[identical tool output repeated later; see message {index}]"
+
+
+def _compress_tool_output_text(text: str, max_chars: int = _DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+                               head_lines: int = 8, tail_lines: int = 8) -> str:
+    """Conservatively shrink noisy tool output while retaining important lines."""
+    cleaned = _ANSI_ESCAPE.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
+    lines = cleaned.split("\n")
+    collapsed: list[str] = []
+    i = 0
+    while i < len(lines):
+        j = i + 1
+        while j < len(lines) and lines[j] == lines[i]:
+            j += 1
+        line = lines[i]
+        if j - i > 1 and line.strip():
+            line = f"{line} (repeated x{j - i})"
+        collapsed.append(line)
+        i = j
+    rendered = "\n".join(collapsed)
+    if len(rendered) <= max_chars:
+        return rendered
+    keep = set(range(min(head_lines, len(collapsed))))
+    keep.update(range(max(0, len(collapsed) - tail_lines), len(collapsed)))
+    keep.update(i for i, line in enumerate(collapsed) if _IMPORTANT.search(line))
+    output: list[str] = []
+    omitted = 0
+    in_omitted = False
+    for index, line in enumerate(collapsed):
+        if index in keep:
+            if in_omitted:
+                output.append(f"[{omitted} lines omitted]")
+                omitted = 0
+                in_omitted = False
+            output.append(line)
+        else:
+            omitted += 1
+            in_omitted = True
+    if in_omitted:
+        output.append(f"[{omitted} lines omitted]")
+    result = "\n".join(output)
+    if len(result) <= max_chars:
+        return result
+    # Important lines win over the nominal cap, so errors are never silently lost.
+    important = [line for line in collapsed if _IMPORTANT.search(line)]
+    selected = set(important)
+    selected.update(line for line in output if line.startswith("[") and "omitted]" in line)
+    budget = max(0, max_chars - sum(len(line) + 1 for line in selected) - 24)
+    for line in output:
+        if line in selected:
+            continue
+        if sum(len(x) + 1 for x in selected) < max_chars - 24 and len(line) <= budget:
+            selected.add(line)
+    return "\n".join(line for line in output if line in selected)
+
+
+def _tool_output_slots(items: list[Any], kind: str) -> list[tuple[int, Any, str, str]]:
+    """Return message index, mutable content owner, key, and tool-output text."""
+    slots: list[tuple[int, Any, str, str]] = []
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        if kind == "chat" and item.get("role") == "tool" and isinstance(item.get("content"), str):
+            slots.append((i, item, "content", item["content"]))
+        elif kind == "responses" and item.get("type") == "function_call_output" and isinstance(item.get("output"), str):
+            slots.append((i, item, "output", item["output"]))
+        elif kind == "anthropic" and item.get("role") == "user" and isinstance(item.get("content"), list):
+            for block in item["content"]:
+                if not isinstance(block, dict) or block.get("type") != "tool_result":
+                    continue
+                if isinstance(block.get("content"), str):
+                    slots.append((i, block, "content", block["content"]))
+                elif isinstance(block.get("content"), list):
+                    for part in block["content"]:
+                        if isinstance(part, dict) and isinstance(part.get("text"), str):
+                            slots.append((i, part, "text", part["text"]))
+    return slots
+
+
+def _compress_payload_tool_outputs(items: list[Any], kind: str, max_chars: int) -> int:
+    """Compress old tool output; leave the newest tool cycle untouched by default."""
+    if max_chars < 1:
+        raise ValueError("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS must be a positive integer.")
+    protected_start = len(items)
+    if kind == "chat":
+        protected_start = next((i for i in range(len(items) - 1, -1, -1)
+                                if isinstance(items[i], dict) and items[i].get("role") == "assistant"
+                                and items[i].get("tool_calls")), len(items))
+    elif kind == "responses":
+        protected_start = next((i for i in range(len(items) - 1, -1, -1)
+                                if isinstance(items[i], dict) and items[i].get("type") == "function_call"), len(items))
+    elif kind == "anthropic":
+        protected_start = next((i for i in range(len(items) - 1, -1, -1)
+                                if isinstance(items[i], dict) and items[i].get("role") == "assistant"
+                                and isinstance(items[i].get("content"), list)
+                                and any(isinstance(b, dict) and b.get("type") == "tool_use" for b in items[i]["content"])), len(items))
+    slots = _tool_output_slots(items, kind)
+    later: dict[str, int] = {}
+    saved = 0
+    for index, owner, key, raw_text in reversed(slots):
+        cleaned = _ANSI_ESCAPE.sub("", raw_text).replace("\r\n", "\n").replace("\r", "\n")
+        if index < protected_start:
+            if cleaned in later:
+                replacement = _TOOL_OUTPUT_REFERENCE.format(index=later[cleaned] + 1)
+            elif len(cleaned) > max_chars:
+                replacement = _compress_tool_output_text(cleaned, max_chars=max_chars)
+            else:
+                replacement = cleaned
+            owner[key] = replacement
+            saved += max(0, len(raw_text) - len(replacement))
+        later.setdefault(cleaned, index)
+    return saved
 
 
 def _contains_cache_control(value: Any) -> bool:
@@ -509,135 +519,6 @@ def compact_response_input(
     return result, _stats(before, after, len(summary), True)
 
 
-
-def _payload_breakdown(path: str, payload: dict[str, Any], keep_recent: int) -> dict[str, int]:
-    """Estimate character distribution; tool output is a subset of history."""
-    result = {
-        "estimated_system_chars": 0,
-        "estimated_old_history_chars": 0,
-        "estimated_recent_chars": 0,
-        "estimated_tool_output_chars": 0,
-    }
-    if path.endswith("/messages") and isinstance(payload.get("messages"), list):
-        result["estimated_system_chars"] = len(_content_text(payload.get("system", "")))
-        messages = [m for m in payload["messages"] if isinstance(m, dict)]
-        result["estimated_old_history_chars"] = sum(
-            len(_message_text(m)) for m in messages[:-keep_recent]
-            if m.get("role") not in {"system", "developer"}
-        )
-        result["estimated_recent_chars"] = sum(
-            len(_message_text(m)) for m in messages[-keep_recent:]
-            if m.get("role") not in {"system", "developer"}
-        )
-        for message in messages:
-            if message.get("role") == "tool":
-                result["estimated_tool_output_chars"] += len(_content_text(message.get("content", "")))
-            content = message.get("content")
-            if isinstance(content, list):
-                result["estimated_tool_output_chars"] += sum(
-                    len(_content_text(block.get("content", "")))
-                    for block in content if isinstance(block, dict) and block.get("type") == "tool_result"
-                )
-    elif path.endswith("/responses") and isinstance(payload.get("input"), list):
-        items = [x for x in payload["input"] if isinstance(x, dict)]
-        result["estimated_system_chars"] = sum(
-            len(_response_item_text(x)) for x in items
-            if x.get("type", "message") == "message" and x.get("role") in {"system", "developer"}
-        )
-        conversation = [x for x in items if not (
-            x.get("type", "message") == "message" and x.get("role") in {"system", "developer"}
-        )]
-        result["estimated_old_history_chars"] = sum(len(_response_item_text(x)) for x in conversation[:-keep_recent])
-        result["estimated_recent_chars"] = sum(len(_response_item_text(x)) for x in conversation[-keep_recent:])
-        result["estimated_tool_output_chars"] = sum(
-            len(_content_text(x.get("output", ""))) for x in items if x.get("type") == "function_call_output"
-        )
-    elif isinstance(payload.get("messages"), list):
-        messages = [m for m in payload["messages"] if isinstance(m, dict)]
-        result["estimated_system_chars"] = sum(
-            len(_message_text(m)) for m in messages if m.get("role") in {"system", "developer"}
-        )
-        conversation = [m for m in messages if m.get("role") not in {"system", "developer"}]
-        result["estimated_old_history_chars"] = sum(len(_message_text(m)) for m in conversation[:-keep_recent])
-        result["estimated_recent_chars"] = sum(len(_message_text(m)) for m in conversation[-keep_recent:])
-        for message in conversation:
-            if message.get("role") == "tool":
-                result["estimated_tool_output_chars"] += len(_content_text(message.get("content", "")))
-            content = message.get("content")
-            if isinstance(content, list):
-                result["estimated_tool_output_chars"] += sum(
-                    len(_content_text(block.get("content", "")))
-                    for block in content if isinstance(block, dict) and block.get("type") == "tool_result"
-                )
-    return result
-
-
-def _normalized_usage(obj: Any) -> dict[str, int] | None:
-    if not isinstance(obj, dict):
-        return None
-    if isinstance(obj.get("response"), dict) and isinstance(obj["response"].get("usage"), dict):
-        obj = obj["response"]
-    elif isinstance(obj.get("message"), dict) and isinstance(obj["message"].get("usage"), dict):
-        obj = obj["message"]
-    usage = obj.get("usage", obj)
-    if not isinstance(usage, dict):
-        return None
-    details = usage.get("input_tokens_details") or usage.get("prompt_tokens_details") or {}
-    if not isinstance(details, dict):
-        details = {}
-    return {
-        "provider_input_tokens": int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0),
-        "provider_output_tokens": int(usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0),
-        "provider_cached_input_tokens": int(
-            usage.get("cache_read_input_tokens", usage.get("cached_input_tokens", details.get("cached_tokens", 0))) or 0
-        ),
-    }
-
-
-def _usage_from_response(raw: bytes, *, is_sse: bool) -> dict[str, int] | None:
-    candidates: list[Any] = []
-    try:
-        decoded = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return None
-    if is_sse:
-        for line in decoded.splitlines():
-            if not line.startswith("data:"):
-                continue
-            data = line[5:].strip()
-            if not data or data == "[DONE]":
-                continue
-            try:
-                candidates.append(json.loads(data))
-            except json.JSONDecodeError:
-                continue
-    else:
-        try:
-            candidates.append(json.loads(decoded))
-        except json.JSONDecodeError:
-            return None
-    merged = {"provider_input_tokens": 0, "provider_output_tokens": 0, "provider_cached_input_tokens": 0}
-    found = False
-    for candidate in candidates:
-        usage = _normalized_usage(candidate)
-        if usage is None:
-            continue
-        found = True
-        for key, value in usage.items():
-            if value:
-                merged[key] = value
-    return merged if found else None
-
-
-def _record_provider_usage(server: Any, usage: dict[str, int] | None) -> None:
-    if not usage:
-        return
-    with server.stats_lock:
-        for key, value in usage.items():
-            server.stats[key] = int(server.stats.get(key, 0)) + max(0, value)
-        server.stats["usage_responses"] = int(server.stats.get("usage_responses", 0)) + 1
-
-
 def transform_payload(
     path: str, payload: dict[str, Any], *, keep_recent: int = 8,
     max_summary_chars: int = 3000, min_old_chars: int = 1200,
@@ -645,20 +526,31 @@ def transform_payload(
 ) -> tuple[dict[str, Any], dict[str, int | bool]]:
     """Compact supported request formats and leave unrelated payloads unchanged."""
     body = json.loads(json.dumps(payload))
-    _compress_payload_tool_outputs(path, body)
     empty: dict[str, int | bool] = _stats(0, 0)
+    tool_output_max_chars = _env_int("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", 4000, minimum=1)
     if path.endswith("/chat/completions") and isinstance(body.get("messages"), list):
+        saved = _compress_payload_tool_outputs(body["messages"], "chat", tool_output_max_chars)
         body["messages"], stats = compact_chat_messages(
             body["messages"], keep_recent=keep_recent, max_summary_chars=max_summary_chars,
             min_old_chars=min_old_chars, min_total_chars=min_total_chars, cut_step=cut_step)
+        stats["tool_output_chars_saved"] = saved
+        stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
+        stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
+        if saved:
+            stats["compressed"] = True
         return body, stats
     if path.endswith("/messages") and isinstance(body.get("messages"), list):
-        original_messages = body["messages"]
+        saved = _compress_payload_tool_outputs(body["messages"], "anthropic", tool_output_max_chars)
         compacted, stats = compact_anthropic_messages(
-            original_messages, system=body.get("system"), keep_recent=keep_recent,
+            body["messages"], system=body.get("system"), keep_recent=keep_recent,
             max_summary_chars=max_summary_chars, min_old_chars=min_old_chars,
             min_total_chars=min_total_chars, cut_step=cut_step)
+        stats["tool_output_chars_saved"] = saved
+        stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
+        stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
         if not stats.get("compressed"):
+            if saved:
+                stats["compressed"] = True
             return body, stats
         body["messages"] = compacted
         summary_text = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\n" + str(stats.pop("summary_text"))
@@ -671,11 +563,106 @@ def transform_payload(
             body["system"] = summary_text
         return body, stats
     if path.endswith("/responses") and isinstance(body.get("input"), list):
+        saved = _compress_payload_tool_outputs(body["input"], "responses", tool_output_max_chars)
         body["input"], stats = compact_response_input(
             body["input"], keep_recent=keep_recent, max_summary_chars=max_summary_chars,
             min_old_chars=min_old_chars, min_total_chars=min_total_chars, cut_step=cut_step)
+        stats["tool_output_chars_saved"] = saved
+        stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
+        stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
+        if saved:
+            stats["compressed"] = True
         return body, stats
     return body, empty
+
+
+def _payload_breakdown(path: str, payload: dict[str, Any], keep_recent: int) -> dict[str, str]:
+    """Return categorized request text for rough estimates, never provider-measured counts."""
+    out = {"system": "", "old_history": "", "recent_turns": "", "tool_outputs": ""}
+    if path.endswith("/chat/completions") and isinstance(payload.get("messages"), list):
+        static = [m for m in payload["messages"] if isinstance(m, dict) and m.get("role") in {"system", "developer"}]
+        conv = [m for m in payload["messages"] if isinstance(m, dict) and m.get("role") not in {"system", "developer"}]
+        out["system"] = "\n".join(_message_text(m) for m in static)
+        out["old_history"] = "\n".join(_message_text(m) for m in conv[:-keep_recent])
+        out["recent_turns"] = "\n".join(_message_text(m) for m in conv[-keep_recent:])
+        out["tool_outputs"] = "\n".join(str(m.get("content", "")) for m in conv if m.get("role") == "tool")
+    elif path.endswith("/messages") and isinstance(payload.get("messages"), list):
+        conv = [m for m in payload["messages"] if isinstance(m, dict)]
+        out["system"] = _content_text(payload.get("system", ""))
+        out["old_history"] = "\n".join(_message_text(m) for m in conv[:-keep_recent])
+        out["recent_turns"] = "\n".join(_message_text(m) for m in conv[-keep_recent:])
+        out["tool_outputs"] = "\n".join(_content_text(block.get("content", "")) for m in conv
+            for block in (m.get("content", []) if isinstance(m.get("content"), list) else [])
+            if isinstance(block, dict) and block.get("type") == "tool_result")
+    elif path.endswith("/responses") and isinstance(payload.get("input"), list):
+        static = [m for m in payload["input"] if isinstance(m, dict) and m.get("type", "message") == "message" and m.get("role") in {"system", "developer"}]
+        conv = [m for m in payload["input"] if isinstance(m, dict) and m not in static]
+        out["system"] = "\n".join(_response_item_text(m) for m in static)
+        out["old_history"] = "\n".join(_response_item_text(m) for m in conv[:-keep_recent])
+        out["recent_turns"] = "\n".join(_response_item_text(m) for m in conv[-keep_recent:])
+        out["tool_outputs"] = "\n".join(_content_text(m.get("output", "")) for m in conv if m.get("type") == "function_call_output")
+    return out
+
+
+def _usage_from_object(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, dict):
+        return None
+    usage = value.get("usage")
+    if not isinstance(usage, dict) and isinstance(value.get("response"), dict):
+        usage = value["response"].get("usage")
+    if not isinstance(usage, dict):
+        return None
+    try:
+        prompt_details = usage.get("prompt_tokens_details", {})
+        input_details = usage.get("input_tokens_details", {})
+        cached = int(usage.get("cache_read_input_tokens", usage.get("cached_input_tokens", 0)) or 0)
+        if isinstance(prompt_details, dict):
+            cached = max(cached, int(prompt_details.get("cached_tokens", 0) or 0))
+        if isinstance(input_details, dict):
+            cached = max(cached, int(input_details.get("cached_tokens", 0) or 0))
+        return {
+            "input": max(0, int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0)),
+            "output": max(0, int(usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0)),
+            "cached_input": max(0, cached),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_provider_usage(raw: bytes, content_type: str) -> dict[str, int] | None:
+    text_value = raw.decode("utf-8", errors="replace")
+    if "text/event-stream" in content_type.lower():
+        found = None
+        for line in text_value.splitlines():
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                usage = _usage_from_object(json.loads(data))
+            except json.JSONDecodeError:
+                continue
+            if usage is not None:
+                found = usage
+        return found
+    try:
+        return _usage_from_object(json.loads(text_value))
+    except json.JSONDecodeError:
+        return None
+
+
+def _record_provider_usage(server: Any, usage: dict[str, int] | None) -> None:
+    if usage is None:
+        return
+    with server.stats_lock:
+        stats = server.stats
+        for key, value in (("provider_input_tokens", usage["input"]),
+                           ("provider_output_tokens", usage["output"]),
+                           ("provider_cached_input_tokens", usage["cached_input"])):
+            stats[key] = stats.get(key, 0) + value
+        stats["provider_usage_responses"] = stats.get("provider_usage_responses", 0) + 1
+
 
 
 class TokenSaverProxyHandler(BaseHTTPRequestHandler):
@@ -730,6 +717,12 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             with self.server.stats_lock:  # type: ignore[attr-defined]
                 stats = dict(self.server.stats)  # type: ignore[attr-defined]
             stats["rough_estimated_tokens_saved"] = estimate_tokens("x" * int(stats.get("chars_saved", 0)))
+            for category in ("system", "old_history", "recent_turns", "tool_outputs"):
+                stats.setdefault(category + "_chars", 0)
+                stats.setdefault("estimated_" + category + "_tokens", 0)
+            for key in ("provider_input_tokens", "provider_output_tokens", "provider_cached_input_tokens",
+                        "provider_usage_responses", "provider_usage_parse_errors"):
+                stats.setdefault(key, 0)
             return self._json_response(200, stats)
         self._forward()
 
@@ -782,20 +775,17 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
         prefix = parsed.path.rstrip("/")
         target_path = prefix + self.path if prefix else self.path
         stats: dict[str, int | bool] = _stats(0, 0)
-        breakdown = {
-            "estimated_system_chars": 0,
-            "estimated_old_history_chars": 0,
-            "estimated_recent_chars": 0,
-            "estimated_tool_output_chars": 0,
-        }
         outgoing = raw
         if raw and self.command in {"POST", "PUT", "PATCH"} and "json" in self.headers.get("Content-Type", "").lower():
             try:
                 payload = json.loads(raw.decode("utf-8"))
                 if isinstance(payload, dict):
-                    breakdown = _payload_breakdown(
-                        self.path.split("?", 1)[0], payload, config.keep_recent_messages
-                    )
+                    breakdown = _payload_breakdown(self.path.split("?", 1)[0], payload, config.keep_recent_messages)
+                    with self.server.stats_lock:  # type: ignore[attr-defined]
+                        for category, category_text in breakdown.items():
+                            self.server.stats[category + "_chars"] = self.server.stats.get(category + "_chars", 0) + len(category_text)  # type: ignore[attr-defined]
+                            token_key = "estimated_" + category + "_tokens"
+                            self.server.stats[token_key] = self.server.stats.get(token_key, 0) + estimate_tokens(category_text)  # type: ignore[attr-defined]
                     if config.enabled:
                         payload, stats = transform_payload(
                             self.path.split("?", 1)[0], payload,
@@ -817,8 +807,6 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             st["compressed_requests"] += int(bool(stats.get("compressed")))
             st["chars_saved"] += max(0, int(stats.get("chars_saved", 0)))
             st.setdefault("transform_errors", 0)
-            for key, value in breakdown.items():
-                st[key] = int(st.get(key, 0)) + max(0, value)
         connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
         conn = connection_cls(parsed.hostname, parsed.port, timeout=config.upstream_timeout)
         headers: dict[str, str] = {}
@@ -839,13 +827,6 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
         try:
             conn.request(self.command, target_path, body=outgoing if self.command not in {"GET", "HEAD", "OPTIONS"} else None, headers=headers)
             upstream = conn.getresponse()
-            content_type = upstream.getheader("Content-Type", "").lower()
-            try:
-                tee_limit = max(1024, int(os.getenv("TOKENSAVER_USAGE_TEE_MAX_BYTES", "1048576")))
-            except ValueError:
-                tee_limit = 1048576
-            tee = bytearray()
-            tee_overflow = False
             self.send_response(upstream.status, upstream.reason)
             for key, value in upstream.getheaders():
                 if key.lower() not in _HOP_BY_HOP and not (upstream.status == 204 and key.lower() in {"content-length", "transfer-encoding"}):
@@ -857,11 +838,17 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             self.end_headers()
             headers_sent = True
             if has_body:
+                try:
+                    tee_limit = _env_int("TOKENSAVER_USAGE_TEE_MAX_BYTES", 1_000_000, minimum=1024)
+                except ValueError:
+                    tee_limit = 1_000_000
+                tee = bytearray()
+                tee_overflow = False
+                content_type = upstream.getheader("Content-Type", "")
                 while True:
                     chunk = upstream.read(65536)
                     if not chunk:
                         break
-                    # Tee bounded bytes for usage parsing while immediately forwarding.
                     if not tee_overflow:
                         if len(tee) + len(chunk) <= tee_limit:
                             tee.extend(chunk)
@@ -872,9 +859,13 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                     self.wfile.write(chunk + b"\r\n")
                     self.wfile.flush()
                 self.wfile.write(b"0\r\n\r\n")
-            if tee and not tee_overflow and ("json" in content_type or "text/event-stream" in content_type):
-                usage = _usage_from_response(bytes(tee), is_sse="text/event-stream" in content_type)
-                _record_provider_usage(self.server, usage)
+                if not tee_overflow and ("json" in content_type.lower() or "text/event-stream" in content_type.lower()):
+                    usage = _parse_provider_usage(bytes(tee), content_type)
+                    if usage is None:
+                        with self.server.stats_lock:  # type: ignore[attr-defined]
+                            self.server.stats["provider_usage_parse_errors"] = self.server.stats.get("provider_usage_parse_errors", 0) + 1  # type: ignore[attr-defined]
+                    else:
+                        _record_provider_usage(self.server, usage)
             with self.server.stats_lock:  # type: ignore[attr-defined]
                 self.server.stats["upstream_errors"] += int(upstream.status >= 500)  # type: ignore[attr-defined]
         except (OSError, http.client.HTTPException) as exc:
@@ -911,10 +902,12 @@ def serve(host: str | None = None, port: int | None = None) -> None:
     server.stats = {
         "requests": 0, "compressed_requests": 0, "chars_saved": 0,
         "upstream_errors": 0, "transform_errors": 0,
+        "system_chars": 0, "old_history_chars": 0, "recent_turns_chars": 0, "tool_outputs_chars": 0,
+        "estimated_system_tokens": 0, "estimated_old_history_tokens": 0,
+        "estimated_recent_turns_tokens": 0, "estimated_tool_outputs_tokens": 0,
         "provider_input_tokens": 0, "provider_output_tokens": 0,
-        "provider_cached_input_tokens": 0, "usage_responses": 0,
-        "estimated_system_chars": 0, "estimated_old_history_chars": 0,
-        "estimated_recent_chars": 0, "estimated_tool_output_chars": 0,
+        "provider_cached_input_tokens": 0, "provider_usage_responses": 0,
+        "provider_usage_parse_errors": 0,
     }  # type: ignore[attr-defined]
     print(f"TokenSaver Gateway listening on http://{config.host}:{config.port}")
     print("Health: /health | Stats: /stats | Ctrl+C to stop")
