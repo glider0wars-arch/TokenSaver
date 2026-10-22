@@ -1,11 +1,12 @@
 import tempfile
+import os
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 import io
 import sys
 
-from tokensaver.memory import RollingMemory, build_request
+from tokensaver.memory import RollingMemory, memory_file_lock, build_request
 from tokensaver.cli import main
 
 
@@ -127,6 +128,18 @@ class MemoryTests(unittest.TestCase):
             cleared = RollingMemory.load(path)
             self.assertEqual(cleared.project, "Project")
             self.assertFalse(any(cleared.sections.values()))
+
+
+    def test_memory_lock_does_not_steal_stale_mtime_from_live_process(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "memory.json"
+            lock_path = path.with_name(path.name + ".lock")
+            lock_path.write_text(str(os.getpid()), encoding="ascii")
+            os.utime(lock_path, (0, 0))
+            with self.assertRaises(TimeoutError):
+                with memory_file_lock(path, stale_after=0, timeout=0):
+                    self.fail("must not enter while another live process owns the lock")
+            self.assertTrue(lock_path.exists())
 
 
 if __name__ == "__main__":

@@ -3,7 +3,9 @@ import socket
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
-from unittest.mock import patch
+from email.message import Message
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from tokensaver.proxy import TokenSaverProxyHandler, load_config
 
@@ -75,6 +77,30 @@ class GatewaySecurityTests(unittest.TestCase):
             response = self.request(server, f"POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nContent-Length: {value}\r\nConnection: close\r\n\r\n")
             self.assertIn("400", response)
 
+
+    def test_chunked_request_body_is_rejected_instead_of_silently_dropped(self):
+        handler = object.__new__(TokenSaverProxyHandler)
+        handler.server = SimpleNamespace(gateway_config=SimpleNamespace(allow_remote=False))
+        handler.headers = Message()
+        handler.headers["Transfer-Encoding"] = "chunked"
+        handler._json_response = Mock()
+        self.assertFalse(handler._preflight())
+        handler._json_response.assert_called_once_with(
+            400, {"error": "Transfer-Encoding is not supported; send a Content-Length body."}
+        )
+
+    def test_duplicate_content_length_headers_are_rejected(self):
+        handler = object.__new__(TokenSaverProxyHandler)
+        handler.server = SimpleNamespace(gateway_config=SimpleNamespace(allow_remote=False))
+        handler.headers = Message()
+        handler.headers.add_header("Content-Length", "0")
+        handler.headers.add_header("Content-Length", "0")
+        handler._json_response = Mock()
+        self.assertFalse(handler._preflight())
+        handler._json_response.assert_called_once_with(
+            400, {"error": "Multiple Content-Length headers are not supported."}
+        )
+
     def test_all_numeric_settings_are_validated_at_startup(self):
         with patch.dict(os.environ, {
             "TOKENSAVER_CUT_STEP": "many",
@@ -82,6 +108,15 @@ class GatewaySecurityTests(unittest.TestCase):
         }, clear=True):
             with self.assertRaisesRegex(ValueError, "TOKENSAVER_CUT_STEP must be an integer"):
                 load_config()
+
+
+    def test_invalid_upstream_port_is_rejected_at_startup(self):
+        with patch.dict(os.environ, {
+            "TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com:99999",
+        }, clear=True):
+            with self.assertRaisesRegex(ValueError, "port"):
+                load_config()
+
 
     def test_remote_mode_without_auth_token_is_rejected_at_startup(self):
         with patch.dict(os.environ, {
