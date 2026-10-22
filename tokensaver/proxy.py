@@ -95,7 +95,7 @@ def load_config() -> GatewayConfig:
     allow_remote = remote_raw == "1"
     token = os.getenv("TOKENSAVER_GATEWAY_TOKEN", "")
     upstream_key = os.getenv("TOKENSAVER_UPSTREAM_API_KEY", "")
-    if any(ch in token for ch in "\\r\\n") or any(ch in upstream_key for ch in "\\r\\n"):
+    if any(ch in token for ch in "\r\n") or any(ch in upstream_key for ch in "\\r\\n"):
         raise ValueError("TOKENSAVER_GATEWAY_TOKEN and TOKENSAVER_UPSTREAM_API_KEY must not contain newlines.")
     if allow_remote and not token:
         raise ValueError("TOKENSAVER_GATEWAY_TOKEN is required when TOKENSAVER_ALLOW_REMOTE=1.")
