@@ -38,7 +38,7 @@ class MemoryTests(unittest.TestCase):
         prompt = build_request(memory, "Fix this:\n  return 1")
         self.assertIn("[COMPRESSED MEMORY]", prompt)
         self.assertIn("Build a game", prompt)
-        self.assertIn("[NEW MESSAGE]\n" + message, prompt)
+        self.assertIn("[NEW MESSAGE]\nFix this:\n  return 1", prompt)
         self.assertIn("Fix this:\n  return 1", prompt)
 
     def test_request_preserves_new_message_whitespace_exactly(self):
