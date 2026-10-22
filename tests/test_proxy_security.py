@@ -20,8 +20,8 @@ class GatewaySecurityTests(unittest.TestCase):
         server.stats = {"requests": 0, "compressed_requests": 0, "chars_saved": 0, "upstream_errors": 0}
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        self.addCleanup(server.shutdown)
         self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
         return server
 
     def request(self, server, request_text):
