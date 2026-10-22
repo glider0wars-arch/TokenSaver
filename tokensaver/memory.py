@@ -22,31 +22,56 @@ class RollingMemory:
     max_recent_turns: int = 6
     max_items_per_category: int = 20
     max_total_chars: int = 12000
+    last_evicted: list[str] = field(default_factory=list, repr=False, compare=False)
 
     def _total_chars(self) -> int:
         return len(self.project) + sum(len(item) for values in self.sections.values() for item in values) + sum(
             len(turn.get("role", "")) + len(turn.get("content", "")) for turn in self.recent_turns
         )
 
-    def _enforce_limits(self) -> None:
+    def _enforce_limits(self) -> list[str]:
+        """Apply bounds transactionally; durable facts are never silently evicted."""
         if self.max_items_per_category < 1 or self.max_total_chars < 1:
             raise ValueError("Memory limits must be positive integers.")
-        for category in CATEGORIES:
-            bucket = self.sections.setdefault(category, [])
-            if len(bucket) > self.max_items_per_category:
-                self.sections[category] = bucket[-self.max_items_per_category:]
-        if self._total_chars() > self.max_total_chars:
-            # Evict the oldest recent turns first, then oldest stored facts.
-            while self.recent_turns and self._total_chars() > self.max_total_chars:
-                self.recent_turns.pop(0)
-            for category in CATEGORIES:
-                bucket = self.sections.get(category, [])
-                while bucket and self._total_chars() > self.max_total_chars:
-                    bucket.pop(0)
-            if self._total_chars() > self.max_total_chars:
+        sections = {name: list(self.sections.get(name, [])) for name in CATEGORIES}
+        turns = [dict(turn) for turn in self.recent_turns]
+        evicted: list[str] = []
+
+        for category in ("GOALS", "RULES", "DECISIONS"):
+            if len(sections[category]) > self.max_items_per_category:
                 raise ValueError(
-                    f"Memory exceeds max_total_chars={self.max_total_chars}; shorten the project name or latest item."
+                    f"{category} has more than max_items_per_category={self.max_items_per_category}; "
+                    "durable facts are never discarded automatically."
                 )
+        for category in ("OPEN_TASKS", "CURRENT_STATE", "FILES", "RECENT_CONTEXT"):
+            while len(sections[category]) > self.max_items_per_category:
+                sections[category].pop(0)
+                evicted.append(category)
+
+        turns = turns[-max(1, self.max_recent_turns):]
+
+        def total() -> int:
+            return len(self.project) + sum(
+                len(item) for values in sections.values() for item in values
+            ) + sum(len(t.get("role", "")) + len(t.get("content", "")) for t in turns)
+
+        while turns and total() > self.max_total_chars:
+            turns.pop(0)
+            evicted.append("recent_turns")
+        for category in ("OPEN_TASKS", "CURRENT_STATE", "FILES", "RECENT_CONTEXT"):
+            while sections[category] and total() > self.max_total_chars:
+                sections[category].pop(0)
+                evicted.append(category)
+        if total() > self.max_total_chars:
+            raise ValueError(
+                f"Memory exceeds max_total_chars={self.max_total_chars}; "
+                "GOALS, RULES, and DECISIONS are protected. Shorten the project name "
+                "or explicitly remove a durable fact."
+            )
+        self.sections = sections
+        self.recent_turns = turns
+        self.last_evicted = evicted
+        return evicted
 
     def add(self, category: str, item: str) -> bool:
         category = category.upper().strip()
@@ -58,13 +83,17 @@ class RollingMemory:
         bucket = self.sections.setdefault(category, [])
         if item in bucket:
             return False
+        old_sections = {name: list(values) for name, values in self.sections.items()}
+        old_turns = [dict(turn) for turn in self.recent_turns]
         bucket.append(item)
         try:
             self._enforce_limits()
         except ValueError:
-            bucket.remove(item)
+            self.sections = old_sections
+            self.recent_turns = old_turns
+            self.last_evicted = []
             raise
-        return item in bucket
+        return item in self.sections.get(category, [])
 
     def remove(self, category: str, item: str) -> bool:
         category = category.upper().strip()
@@ -88,9 +117,22 @@ class RollingMemory:
         content = content.strip()
         if not content:
             return
+        try:
+            max_turn_chars = max(1, int(os.getenv("TOKENSAVER_MAX_TURN_CHARS", "2000")))
+        except ValueError as exc:
+            raise ValueError("TOKENSAVER_MAX_TURN_CHARS must be a positive integer.") from exc
+        content = content[:max_turn_chars]
+        old_sections = {name: list(values) for name, values in self.sections.items()}
+        old_turns = [dict(turn) for turn in self.recent_turns]
         self.recent_turns.append({"role": role, "content": content})
         self.recent_turns = self.recent_turns[-max(1, self.max_recent_turns):]
-        self._enforce_limits()
+        try:
+            self._enforce_limits()
+        except ValueError:
+            self.sections = old_sections
+            self.recent_turns = old_turns
+            self.last_evicted = []
+            raise
 
     def render(self, *, include_recent: bool = True) -> str:
         lines = ["# TOKENSAVER MEMORY"]
