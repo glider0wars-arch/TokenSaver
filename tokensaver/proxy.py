@@ -777,6 +777,11 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             if not supplied or not matches:
                 self._json_response(401, {"error": "Missing or invalid TokenSaver gateway token."})
                 return False
+        # Request bodies are read by Content-Length below. Silently accepting
+        # Transfer-Encoding would drop chunked bodies and can desynchronize HTTP.
+        if self.headers.get("Transfer-Encoding"):
+            self._json_response(400, {"error": "Transfer-Encoding is not supported; send a Content-Length body."})
+            return False
         try:
             length = int(self.headers.get("Content-Length", "0") or "0")
         except (TypeError, ValueError):
@@ -906,7 +911,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             headers.pop("Authorization", None)
         headers_sent = False
         try:
-            conn.request(self.command, target_path, body=outgoing if self.command not in {"GET", "HEAD", "OPTIONS"} else None, headers=headers)
+            conn.request(self.command, target_path, body=outgoing if self.command not in {"GET", "HEAD"} else None, headers=headers)
             upstream = conn.getresponse()
             self.send_response(upstream.status, upstream.reason)
             for key, value in upstream.getheaders():
