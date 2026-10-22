@@ -89,6 +89,20 @@ class GatewaySecurityTests(unittest.TestCase):
         self.assertIn("Transfer-Encoding", response)
 
 
+
+    def test_duplicate_content_length_headers_are_rejected(self):
+        server = self.make_server({
+            "TOKENSAVER_UPSTREAM_BASE_URL": "http://127.0.0.1:1",
+        })
+        response = self.request(
+            server,
+            "POST /v1/chat/completions HTTP/1.1\\r\\nHost: localhost\\r\\n"
+            "Content-Length: 0\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n",
+        )
+        self.assertIn("400", response)
+        self.assertIn("Content-Length", response)
+
+
     def test_all_numeric_settings_are_validated_at_startup(self):
         with patch.dict(os.environ, {
             "TOKENSAVER_CUT_STEP": "many",
