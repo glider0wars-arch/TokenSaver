@@ -11,7 +11,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .compressor import compress_text
 
 CATEGORIES = ("GOALS", "RULES", "DECISIONS", "CURRENT_STATE", "FILES", "OPEN_TASKS", "RECENT_CONTEXT")
 
