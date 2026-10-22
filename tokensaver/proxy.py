@@ -386,14 +386,19 @@ def compact_chat_messages(
         raise ValueError("Invalid messages or compression settings")
     static: list[dict[str, Any]] = []
     conversation: list[dict[str, Any]] = []
+    seen_conversation = False
     for item in messages:
+        if not seen_conversation and isinstance(item, dict) and item.get("role") in {"system", "developer"}:
+            static.append(item)
+            continue
+        seen_conversation = True
         if not isinstance(item, dict):
             conversation.append({"role": "user", "content": _content_text(item)})
-        elif item.get("role") in {"system", "developer"}:
-            static.append(item)
         else:
+            # A later system/developer message is semantically ordered content,
+            # not part of the initial stable prefix. Never hoist it.
             conversation.append(item)
-    original_chars = sum(len(_message_text(m)) for m in messages if isinstance(m, dict))
+    original_chars = sum(len(_message_text(m)) for m in static + conversation)
     if original_chars <= min_total_chars or len(conversation) <= keep_recent:
         return messages, _stats(original_chars, original_chars)
     cut = _bucketed_cut(len(conversation), keep_recent, cut_step)
@@ -511,14 +516,20 @@ def compact_response_input(
         raise ValueError("Invalid input items or compression settings")
     static: list[dict[str, Any]] = []
     conversation: list[dict[str, Any]] = []
+    seen_conversation = False
     for item in items:
+        if (not seen_conversation and isinstance(item, dict)
+                and item.get("type", "message") == "message"
+                and item.get("role") in {"system", "developer"}):
+            static.append(item)
+            continue
+        seen_conversation = True
         if not isinstance(item, dict):
             conversation.append({"type": "message", "role": "user", "content": _content_text(item)})
-        elif item.get("type", "message") == "message" and item.get("role") in {"system", "developer"}:
-            static.append(item)
         else:
+            # Preserve system/developer items that occur after the conversation starts.
             conversation.append(item)
-    before = sum(len(_response_item_text(item)) for item in items if isinstance(item, dict))
+    before = sum(len(_response_item_text(item)) for item in static + conversation)
     if before <= min_total_chars or len(conversation) <= keep_recent:
         return items, _stats(before, before)
     cut = _bucketed_cut(len(conversation), keep_recent, cut_step)
