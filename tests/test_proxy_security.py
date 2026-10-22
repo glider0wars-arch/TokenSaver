@@ -3,7 +3,9 @@ import socket
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
-from unittest.mock import patch
+from email.message import Message
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from tokensaver.proxy import TokenSaverProxyHandler, load_config
 
@@ -77,31 +79,27 @@ class GatewaySecurityTests(unittest.TestCase):
 
 
     def test_chunked_request_body_is_rejected_instead_of_silently_dropped(self):
-        server = self.make_server({
-            "TOKENSAVER_UPSTREAM_BASE_URL": "http://127.0.0.1:1",
-        })
-        response = self.request(
-            server,
-            "POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\n"
-            "Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n0\r\n\r\n",
+        handler = object.__new__(TokenSaverProxyHandler)
+        handler.server = SimpleNamespace(gateway_config=SimpleNamespace(allow_remote=False))
+        handler.headers = Message()
+        handler.headers["Transfer-Encoding"] = "chunked"
+        handler._json_response = Mock()
+        self.assertFalse(handler._preflight())
+        handler._json_response.assert_called_once_with(
+            400, {"error": "Transfer-Encoding is not supported; send a Content-Length body."}
         )
-        self.assertIn("400", response)
-        self.assertNotIn("502", response)
-
-
 
     def test_duplicate_content_length_headers_are_rejected(self):
-        server = self.make_server({
-            "TOKENSAVER_UPSTREAM_BASE_URL": "http://127.0.0.1:1",
-        })
-        response = self.request(
-            server,
-            "POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\n"
-            "Content-Length: 0\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+        handler = object.__new__(TokenSaverProxyHandler)
+        handler.server = SimpleNamespace(gateway_config=SimpleNamespace(allow_remote=False))
+        handler.headers = Message()
+        handler.headers.add_header("Content-Length", "0")
+        handler.headers.add_header("Content-Length", "0")
+        handler._json_response = Mock()
+        self.assertFalse(handler._preflight())
+        handler._json_response.assert_called_once_with(
+            400, {"error": "Multiple Content-Length headers are not supported."}
         )
-        self.assertIn("400", response)
-        self.assertIn("Content-Length", response)
-
 
     def test_all_numeric_settings_are_validated_at_startup(self):
         with patch.dict(os.environ, {
