@@ -409,8 +409,14 @@ def _select_summary_lines(text: str, budget: int) -> str:
             selected.add(index)
             used += len(lines[index]) + 1
     if not selected:
-        # Do not turn a truncated fragment into a misleading summary.
-        return lines[-1] if len(lines[-1]) <= budget else ""
+        # Keep a complete line when possible. Generic prose may be clipped as a
+        # last resort, but never truncate an error, decision, constraint, or code-like line.
+        fallback = lines[-1]
+        if len(fallback) <= budget:
+            return fallback
+        if _IMPORTANT.search(fallback) or re.match(r"^\s+", fallback) or re.search(r"[{}();=]|\b(?:def|class|return|import|const|function)\b", fallback):
+            return ""
+        return fallback[:budget]
     return "\n".join(lines[index] for index in sorted(selected))
 
 
