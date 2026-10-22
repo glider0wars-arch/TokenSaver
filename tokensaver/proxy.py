@@ -893,7 +893,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                 stats.setdefault(category + "_chars", 0)
                 stats.setdefault("estimated_" + category + "_tokens", 0)
             for key in ("provider_input_tokens", "provider_output_tokens", "provider_cached_input_tokens",
-                        "provider_cache_creation_input_tokens", "provider_usage_responses", "provider_usage_parse_errors"):
+                        "provider_cache_creation_input_tokens", "provider_usage_responses", "provider_usage_parse_errors", "provider_usage_skipped_oversize"):
                 stats.setdefault(key, 0)
             return self._json_response(200, stats)
         self._forward()
@@ -1033,7 +1033,11 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                     self.wfile.write(chunk + b"\r\n")
                     self.wfile.flush()
                 self.wfile.write(b"0\r\n\r\n")
-                if not tee_overflow and ("json" in content_type.lower() or "text/event-stream" in content_type.lower()):
+                usage_content_type = "json" in content_type.lower() or "text/event-stream" in content_type.lower()
+                if tee_overflow and usage_content_type:
+                    with self.server.stats_lock:  # type: ignore[attr-defined]
+                        self.server.stats["provider_usage_skipped_oversize"] = self.server.stats.get("provider_usage_skipped_oversize", 0) + 1  # type: ignore[attr-defined]
+                elif not tee_overflow and usage_content_type:
                     usage = _parse_provider_usage(bytes(tee), content_type)
                     if usage is None:
                         with self.server.stats_lock:  # type: ignore[attr-defined]
