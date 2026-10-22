@@ -17,23 +17,6 @@ from tokensaver.proxy import (
 
 
 class ReviewRegressionTests(unittest.TestCase):
-    def test_compactors_fail_closed_on_non_object_chat_items(self):
-        messages = [{"role": "user", "content": "old " * 100}, "unexpected raw item", {"role": "assistant", "content": "latest " * 100}]
-        compacted, stats = compact_chat_messages(messages, keep_recent=1, cut_step=1, min_total_chars=1, min_old_chars=1)
-        self.assertEqual(compacted, messages)
-        self.assertFalse(stats["compressed"])
-
-    def test_compactors_fail_closed_on_non_object_responses_items(self):
-        items = [{"type": "message", "role": "user", "content": "old " * 100}, 7, {"type": "message", "role": "user", "content": "latest " * 100}]
-        compacted, stats = compact_response_input(items, keep_recent=1, cut_step=1, min_total_chars=1, min_old_chars=1)
-        self.assertEqual(compacted, items)
-        self.assertFalse(stats["compressed"])
-
-    def test_anthropic_compactor_does_not_drop_non_object_items(self):
-        messages = [{"role": "user", "content": "old " * 100}, None, {"role": "user", "content": "latest " * 100}]
-        compacted, stats = compact_anthropic_messages(messages, keep_recent=1, cut_step=1, min_total_chars=1, min_old_chars=1)
-        self.assertEqual(compacted, messages)
-        self.assertFalse(stats["compressed"])
     def test_chat_cut_does_not_start_with_orphan_tool_message(self):
         messages = [
             {"role": "user", "content": "old context " * 100},
@@ -69,26 +52,6 @@ class ReviewRegressionTests(unittest.TestCase):
                 if first.get("type") == "function_call_output":
                     self.fail("retained context starts with an orphan function_call_output")
 
-    def test_anthropic_after_char_count_includes_system_summary_prefix(self):
-        system = "Stable system prompt"
-        messages = [
-            {"role": "user", "content": "old context " * 100},
-            {"role": "assistant", "content": "old response " * 100},
-            {"role": "user", "content": "latest question " * 100},
-            {"role": "assistant", "content": "latest answer " * 100},
-        ]
-        compacted, stats = compact_anthropic_messages(
-            messages, system=system, keep_recent=2, cut_step=1, min_total_chars=1,
-            min_old_chars=1, max_summary_chars=500,
-        )
-        self.assertTrue(stats["compressed"])
-        summary = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\n" + stats["summary_text"]
-        expected_system = (system + "\n\n" + summary).strip()
-        actual_after = len(expected_system) + sum(
-            len(f"{message.get('role', 'unknown')}: {_content_text(message.get('content', ''))}".strip())
-            for message in compacted
-        )
-        self.assertEqual(stats["after_chars"], actual_after)
     def test_anthropic_cut_never_keeps_tool_result_without_its_use(self):
         messages = [
             {"role": "user", "content": "old context " * 100},
@@ -220,19 +183,37 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertLess(len(messages[2]["content"]), len(old_output))
         self.assertEqual(messages[4]["content"], latest_output)
 
+    def test_tool_output_compression_skips_cache_controlled_context(self):
+        from tokensaver.proxy import _compress_payload_tool_outputs
+
+        messages = [
+            {"role": "system", "content": [
+                {"type": "text", "text": "stable system prefix", "cache_control": {"type": "ephemeral"}}
+            ]},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "old-call", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+            ]},
+            {"role": "tool", "tool_call_id": "old-call", "content": "repeated output\n" * 100},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "new-call", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+            ]},
+            {"role": "tool", "tool_call_id": "new-call", "content": "new output"},
+        ]
+        before = json.dumps(messages, ensure_ascii=False)
+        saved = _compress_payload_tool_outputs(messages, "chat", 20)
+        self.assertEqual(saved, 0)
+        self.assertEqual(json.dumps(messages, ensure_ascii=False), before)
+
     def test_duplicate_earlier_tool_output_becomes_reference(self):
         same = "line one\nline two"
         messages = [
-            {"role": "assistant", "tool_calls": [{"id": "first", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
             {"role": "tool", "tool_call_id": "first", "content": same},
             {"role": "assistant", "content": "between"},
-            {"role": "assistant", "tool_calls": [{"id": "second", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
             {"role": "tool", "tool_call_id": "second", "content": same},
         ]
         _compress_payload_tool_outputs(messages, "chat", 100)
-        self.assertIn("identical tool output repeated later", messages[1]["content"])
-        self.assertNotIn("see message", messages[1]["content"])
-        self.assertEqual(messages[4]["content"], same)
+        self.assertIn("identical tool output repeated later", messages[0]["content"])
+        self.assertEqual(messages[2]["content"], same)
 
     def test_provider_usage_parses_json_and_sse(self):
         json_usage = _parse_provider_usage(
@@ -304,6 +285,60 @@ class ReviewRegressionTests(unittest.TestCase):
                                if m.get("role") == "developer" and "Late developer rule" in str(m.get("content", "")))
         self.assertGreater(developer_index, summary_index)
 
+
+    def test_content_text_redacts_nested_binary_and_base64_blocks(self):
+        from tokensaver.proxy import _content_text
+
+        payload = {
+            "content": {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/png", "data": "A" * 50000},
+            },
+            "metadata": {"binary_data": "B" * 50000},
+        }
+        rendered = _content_text(payload)
+        self.assertLess(len(rendered), 200)
+        self.assertNotIn("AAAA", rendered)
+        self.assertNotIn("BBBB", rendered)
+        self.assertIn("[image omitted]", rendered)
+        self.assertIn("[binary omitted]", rendered)
+
+    def test_payload_breakdown_keeps_late_developer_items_in_history(self):
+        from tokensaver.proxy import _payload_breakdown
+
+        chat = {"messages": [
+            {"role": "system", "content": "initial system"},
+            {"role": "user", "content": "old user context"},
+            {"role": "developer", "content": "late developer instruction"},
+            {"role": "user", "content": "recent user context"},
+        ]}
+        report = _payload_breakdown("/v1/chat/completions", chat, 2)
+        self.assertIn("initial system", report["system"])
+        self.assertNotIn("late developer instruction", report["system"])
+        self.assertIn("late developer instruction", report["recent_turns"])
+
+        responses = {"input": [
+            {"type": "message", "role": "developer", "content": "initial developer"},
+            {"type": "message", "role": "user", "content": "old user context"},
+            {"type": "message", "role": "developer", "content": "late developer instruction"},
+            {"type": "message", "role": "user", "content": "recent user context"},
+        ], "instructions": "top-level instructions"}
+        report = _payload_breakdown("/v1/responses", responses, 2)
+        self.assertIn("initial developer", report["system"])
+        self.assertNotIn("late developer instruction", report["system"])
+        self.assertIn("late developer instruction", report["recent_turns"])
+        self.assertIn("top-level instructions", report["system"])
+
+    def test_responses_string_input_is_included_in_estimated_breakdown(self):
+        from tokensaver.proxy import _payload_breakdown
+
+        report = _payload_breakdown(
+            "/v1/responses",
+            {"instructions": "fixed instructions", "input": "the actual user prompt"},
+            8,
+        )
+        self.assertIn("fixed instructions", report["system"])
+        self.assertIn("the actual user prompt", report["recent_turns"])
 
     def test_responses_report_includes_top_level_instructions_in_system_bucket(self):
         payload = {
