@@ -129,7 +129,17 @@ def _content_text(content: Any) -> str:
             if isinstance(part, str):
                 pieces.append(part)
             elif isinstance(part, dict):
-                kind = part.get("type", "")
+                kind = str(part.get("type", "")).lower()
+                source = part.get("source")
+                if kind in {"image", "image_url", "input_image"} or "image_url" in part:
+                    pieces.append("[image omitted]")
+                    continue
+                if isinstance(source, dict) and source.get("type") == "base64" and isinstance(source.get("data"), str):
+                    pieces.append("[image omitted]")
+                    continue
+                if any(key in part for key in ("data_base64", "binary_data", "bytes")):
+                    pieces.append("[binary omitted]")
+                    continue
                 value = part.get("text")
                 if isinstance(value, str):
                     pieces.append(value)
@@ -138,7 +148,6 @@ def _content_text(content: Any) -> str:
                 elif isinstance(part.get("content"), (str, list, dict)):
                     pieces.append(_content_text(part["content"]))
                 else:
-                    # Preserve non-text structured blocks in the compacted summary.
                     pieces.append(json.dumps(part, ensure_ascii=False, separators=(",", ":")))
         return "\n".join(pieces)
     if content is None:
@@ -237,6 +246,15 @@ def compact_chat_messages(
     cut = _bucketed_cut(len(conversation), keep_recent, cut_step)
     if cut <= 0:
         return messages, _stats(original_chars, original_chars)
+    # If the cut starts at a tool reply, include the assistant request that owns it.
+    while cut < len(conversation) and conversation[cut].get("role") == "tool":
+        tool_id = str(conversation[cut].get("tool_call_id", ""))
+        call_index = next((i for i in range(cut - 1, -1, -1)
+                           if any(isinstance(call, dict) and str(call.get("id", "")) == tool_id
+                                  for call in (conversation[i].get("tool_calls") or []))), None)
+        if call_index is None:
+            break
+        cut = call_index
     old, recent = conversation[:cut], conversation[cut:]
     if _contains_cache_control(static) or _contains_cache_control(old):
         return messages, _stats(original_chars, original_chars)
@@ -289,16 +307,25 @@ def compact_anthropic_messages(
     if _contains_cache_control(system) or _contains_cache_control(conversation[:cut]):
         return messages, _stats(total, total)
     uses, results = _anthropic_pair_ids(conversation)
-    # If a tool pair straddles the cut, move it so both halves remain together.
-    for tool_id in set(uses) & set(results):
-        use_i, result_i = uses[tool_id], results[tool_id]
-        if use_i < cut <= result_i:
-            cut = result_i + 1  # Both messages become old context.
-        elif result_i < cut <= use_i:
-            cut = result_i  # Keep the user result and its following tool_use together in recent context.
-    # The retained window must begin at a user turn, never at an assistant/tool message.
-    while cut < len(conversation) and conversation[cut].get("role") != "user":
-        cut += 1
+    # Keep every retained tool_result paired with its tool_use. If the cut separates
+    # them, move it back to the user turn before the tool_use and re-check.
+    while cut < len(conversation):
+        broken = next(((tool_id, use_i) for tool_id, use_i in uses.items()
+                       if use_i < cut and tool_id in results and results[tool_id] >= cut), None)
+        if broken:
+            _, use_i = broken
+            prior_users = [i for i in range(use_i) if conversation[i].get("role") == "user"]
+            if not prior_users:
+                return messages, _stats(total, total)
+            cut = prior_users[-1]
+            continue
+        if conversation[cut].get("role") != "user":
+            prior_users = [i for i in range(cut) if conversation[i].get("role") == "user"]
+            if not prior_users:
+                return messages, _stats(total, total)
+            cut = prior_users[-1]
+            continue
+        break
     if cut >= len(conversation):
         return messages, _stats(total, total)
     old, recent = conversation[:cut], conversation[cut:]
@@ -350,6 +377,15 @@ def compact_response_input(
         return items, _stats(before, before)
     if _contains_cache_control(static) or _contains_cache_control(conversation[:cut]):
         return items, _stats(before, before)
+    # Keep function_call_output paired with the function_call that produced it.
+    while cut < len(conversation) and conversation[cut].get("type") == "function_call_output":
+        call_id = str(conversation[cut].get("call_id", ""))
+        call_index = next((i for i in range(cut - 1, -1, -1)
+                           if conversation[i].get("type") == "function_call"
+                           and str(conversation[i].get("call_id", "")) == call_id), None)
+        if call_index is None:
+            break
+        cut = call_index
     # A reasoning item belongs with the item immediately following it.
     while cut > 0 and conversation[cut - 1].get("type") == "reasoning":
         cut -= 1
@@ -427,11 +463,16 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             self._json_response(500, {"error": str(exc)})
             return False
         if config.allow_remote:
-            supplied = self.headers.get("X-TokenSaver-Token", "")
-            auth = self.headers.get("Authorization", "")
-            if auth.startswith("Bearer "):
-                supplied = auth[7:]
-            if not supplied or not hmac.compare_digest(supplied, config.gateway_token):
+            if "X-TokenSaver-Token" in self.headers:
+                supplied = self.headers.get("X-TokenSaver-Token", "")
+            else:
+                auth = self.headers.get("Authorization", "")
+                supplied = auth[7:] if auth.startswith("Bearer ") else ""
+            try:
+                matches = hmac.compare_digest(supplied.encode("utf-8"), config.gateway_token.encode("utf-8"))
+            except (UnicodeEncodeError, AttributeError):
+                matches = False
+            if not supplied or not matches:
                 self._json_response(401, {"error": "Missing or invalid TokenSaver gateway token."})
                 return False
         try:
@@ -466,7 +507,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         if not self._preflight():
             return
-        self._json_response(204, {})
+        self._forward()
 
     def do_POST(self) -> None:
         if self._preflight():
@@ -487,8 +528,9 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
     def _json_response(self, status: int, obj: dict[str, Any]) -> None:
         raw = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(raw)))
+        if status != 204:
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(raw)))
         self.send_header("Connection", "close")
         self.end_headers()
         if getattr(self, "command", "") != "HEAD" and status != 204:
@@ -520,14 +562,17 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                         cut_step=config.cut_step,
                     )
                     outgoing = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-            except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
-                # Malformed JSON or payload shape is forwarded unchanged, not silently destroyed.
+            except (UnicodeDecodeError, json.JSONDecodeError, ValueError, TypeError):
+                # Preserve upstream behavior but make transform failures visible in /stats.
+                with self.server.stats_lock:  # type: ignore[attr-defined]
+                    self.server.stats["transform_errors"] = self.server.stats.get("transform_errors", 0) + 1  # type: ignore[attr-defined]
                 outgoing = raw
         with self.server.stats_lock:  # type: ignore[attr-defined]
             st = self.server.stats  # type: ignore[attr-defined]
             st["requests"] += 1
             st["compressed_requests"] += int(bool(stats.get("compressed")))
             st["chars_saved"] += max(0, int(stats.get("chars_saved", 0)))
+            st.setdefault("transform_errors", 0)
         connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
         conn = connection_cls(parsed.hostname, parsed.port, timeout=config.upstream_timeout)
         headers: dict[str, str] = {}
