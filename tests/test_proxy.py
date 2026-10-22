@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from tokensaver.proxy import (
     _IMPORTANT, _compress_tool_output_text, _compress_payload_tool_outputs,
-    _parse_provider_usage, compact_anthropic_messages, compact_chat_messages,
+    _parse_provider_usage, _select_summary_lines, compact_anthropic_messages, compact_chat_messages,
     compact_response_input, transform_payload,
 )
 
@@ -83,6 +83,33 @@ class ProxyTests(unittest.TestCase):
         transformed, stats = transform_payload("/v1/messages", body, keep_recent=2, min_total_chars=100, min_old_chars=100)
         self.assertFalse(stats["compressed"])
         self.assertEqual(transformed, body)
+
+    def test_cache_control_in_recent_context_skips_all_compaction(self):
+        chat = [{"role": "user", "content": f"old context {i} " * 80} for i in range(12)]
+        chat += [
+            {"role": "user", "content": [{"type": "text", "text": "cached recent", "cache_control": {"type": "ephemeral"}}]},
+            {"role": "assistant", "content": "latest answer " * 50},
+        ]
+        compacted, stats = compact_chat_messages(
+            chat, keep_recent=2, min_total_chars=1, min_old_chars=1, cut_step=1,
+        )
+        self.assertIs(compacted, chat)
+        self.assertFalse(stats["compressed"])
+
+        responses = [{"type": "message", "role": "user", "content": f"old context {i} " * 80} for i in range(12)]
+        responses += [
+            {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "cached recent", "cache_control": {"type": "ephemeral"}}]},
+            {"type": "message", "role": "assistant", "content": "latest answer " * 50},
+        ]
+        compacted, stats = compact_response_input(
+            responses, keep_recent=2, min_total_chars=1, min_old_chars=1, cut_step=1,
+        )
+        self.assertIs(compacted, responses)
+        self.assertFalse(stats["compressed"])
+
+    def test_summary_never_truncates_important_lines_to_fit(self):
+        text = "Error: " + "a" * 40 + "\nDecision: " + "b" * 40
+        self.assertEqual(_select_summary_lines(text, budget=50), "")
 
     def test_bucketed_summary_stays_identical_inside_same_bucket(self):
         messages = [{"role": "user", "content": f"Old fact {i}: " + ("context " * 35)} for i in range(10)]
