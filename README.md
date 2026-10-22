@@ -42,13 +42,13 @@ Install locally (Python 3.10+):
 
 Create a memory file and store important project facts:
 
-    tokensaver memory-init .tokensaver-memory.json --project "My project"
-    tokensaver memory-add .tokensaver-memory.json GOALS "Build the requested app"
-    tokensaver memory-add .tokensaver-memory.json RULES "Keep existing tests passing"
+    toknix memory-init .tokensaver-memory.json --project "My project"
+    toknix memory-add .tokensaver-memory.json GOALS "Build the requested app"
+    toknix memory-add .tokensaver-memory.json RULES "Keep existing tests passing"
 
 Prepare a compact prompt for the next model request:
 
-    tokensaver request .tokensaver-memory.json "Add a settings page"
+    toknix request .tokensaver-memory.json "Add a settings page"
 
 The command prints the compact memory plus the new message, and saves the new user turn to the rolling window. Send the printed prompt to the model instead of resending the full old transcript when your workflow lets you control request construction. After the model responds, save only a short, useful summary or durable decision with memory-add or memory-turn, not a huge raw answer.
 
