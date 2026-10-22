@@ -314,7 +314,7 @@ def _select_summary_lines(text: str, budget: int) -> str:
     lines: list[str] = []
     seen: set[str] = set()
     for raw in text.splitlines():
-        line = re.sub(r"[ \\t]+", " ", raw).strip()
+        line = re.sub(r"[ \t]+", " ", raw).strip()
         if not line:
             continue
         key = line.casefold()
@@ -326,13 +326,13 @@ def _select_summary_lines(text: str, budget: int) -> str:
         return ""
 
     def score(line: str) -> int:
-        if re.search(r"\\b(?:error|exception|traceback|failed|failure|status code|valueerror|typeerror)\\b|\\bline\\s+\\d+\\b", line, re.I):
+        if re.search(r"\b(?:error|exception|traceback|failed|failure|status code|valueerror|typeerror)\b|\bline\s+\d+\b", line, re.I):
             return 100
-        if re.search(r"\\b(?:constraint|requirement|decision|decisions|current request|durable decisions|never|must not|do not|windows compatibility|python\\s+3\\.\\d+)\\b", line, re.I):
+        if re.search(r"\b(?:constraint|requirement|decision|decisions|current request|durable decisions|never|must not|do not|windows compatibility|python\s+3\.\d+)\b", line, re.I):
             return 90
         if re.search(r"(?:خطا|اشکال|تصمیم|محدودیت|الزام|فراموش نکن)", line):
             return 90
-        if re.search(r"\\b[A-Za-z0-9_.-]+\\.(?:py|ts|tsx|js|json|yaml|yml|toml|md)\\b", line, re.I):
+        if re.search(r"\b[A-Za-z0-9_.-]+\.(?:py|ts|tsx|js|json|yaml|yml|toml|md)\b", line, re.I):
             return 80
         if _IMPORTANT.search(line):
             return 60
@@ -360,7 +360,7 @@ def _select_summary_lines(text: str, budget: int) -> str:
             used += len(lines[index]) + 1
     if not selected:
         return lines[-1][:budget]
-    return "\\n".join(lines[index] for index in sorted(selected))
+    return "\n".join(lines[index] for index in sorted(selected))
 
 
 
