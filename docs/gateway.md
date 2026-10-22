@@ -1,6 +1,6 @@
-# TokenSaver Gateway
+# Toknix Gateway
 
-TokenSaver Gateway is a local HTTP proxy. It receives an API request, replaces eligible older conversation turns with a compact extractive context note, and forwards the modified request to the configured provider. The latest messages and system/developer instructions are preserved. Recent tool-call cycles are kept together when detected.
+Toknix Gateway is a local HTTP proxy. It receives an API request, replaces eligible older conversation turns with a compact extractive context note, and forwards the modified request to the configured provider. The latest messages and system/developer instructions are preserved. Recent tool-call cycles are kept together when detected.
 
 It supports these request shapes:
 
@@ -47,17 +47,17 @@ If your client already sends a valid provider API key, the proxy forwards its au
     )
     print(response.choices[0].message.content)
 
-For Grok, the OpenAI-compatible client can use the local base URL while TokenSaver's upstream is set to `https://api.x.ai`. The upstream API key and API billing still apply.
+For Grok, the OpenAI-compatible client can use the local base URL while Toknix's upstream is set to `https://api.x.ai`. The upstream API key and API billing still apply.
 
 ### Claude Code / Anthropic API
 
-Start TokenSaver with `TOKENSAVER_UPSTREAM_BASE_URL=https://api.anthropic.com`. In the Claude Code shell, configure the supported custom API base URL for your installed version to `http://127.0.0.1:8765`, then launch Claude Code. Use an Anthropic API credential for API-based routing. Claude Code authentication modes and custom-base-URL behavior vary by version, so verify the current Anthropic documentation before changing your normal setup.
+Start Toknix with `TOKENSAVER_UPSTREAM_BASE_URL=https://api.anthropic.com`. In the Claude Code shell, configure the supported custom API base URL for your installed version to `http://127.0.0.1:8765`, then launch Claude Code. Use an Anthropic API credential for API-based routing. Claude Code authentication modes and custom-base-URL behavior vary by version, so verify the current Anthropic documentation before changing your normal setup.
 
 **Subscription caveat:** routing through the Anthropic API uses API billing; it does not turn a Claude Pro/Max subscription into API credits. Likewise, this gateway does not intercept hidden traffic from the Claude, ChatGPT, or Grok websites/apps.
 
 ### Codex
 
-The gateway can compact simple Responses API message lists. If your Codex version supports a custom OpenAI-compatible Responses API base URL, point it at `http://127.0.0.1:8765/v1` and configure TokenSaver's upstream to OpenAI. Test tool-heavy requests carefully before relying on it. The proxy intentionally avoids rewriting unsupported payload shapes.
+The gateway can compact simple Responses API message lists. If your Codex version supports a custom OpenAI-compatible Responses API base URL, point it at `http://127.0.0.1:8765/v1` and configure Toknix's upstream to OpenAI. Test tool-heavy requests carefully before relying on it. The proxy intentionally avoids rewriting unsupported payload shapes.
 
 Codex authentication and supported provider configuration depend on the product/version. API-key routing uses API billing and is distinct from subscription-managed traffic.
 
