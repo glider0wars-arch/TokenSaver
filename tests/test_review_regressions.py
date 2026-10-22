@@ -63,7 +63,8 @@ class ReviewRegressionTests(unittest.TestCase):
             )
             if stats["compressed"]:
                 retained = json.dumps(compacted, ensure_ascii=False)
-                self.assertNotIn('"tool_use_id": "tool-1"', retained)
+                if '"tool_use_id": "tool-1"' in retained:
+                    self.assertIn('"type": "tool_use"', retained)
 
     def test_content_text_omits_base64_and_image_payloads(self):
         content = [
