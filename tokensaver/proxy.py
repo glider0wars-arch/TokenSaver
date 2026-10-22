@@ -398,11 +398,10 @@ def _select_summary_lines(text: str, budget: int) -> str:
         if used + cost <= budget:
             selected.add(index)
             used += cost
-        elif _IMPORTANT.search(line) and used < budget and budget - used > 40:
-            clipped = line[:max(1, budget - used - 12)] + "…[trimmed]"
-            lines[index] = clipped
-            selected.add(index)
-            used += len(clipped) + 1
+        elif _IMPORTANT.search(line):
+            # Never truncate an important line and present it as if it were intact.
+            # If the critical context cannot fit, let the caller skip compaction.
+            return ""
     for index in (0, len(lines) - 1):
         if index not in selected and used + len(lines[index]) + 1 <= budget:
             selected.add(index)
@@ -460,7 +459,7 @@ def compact_chat_messages(
             return messages, _stats(original_chars, original_chars)
         cut = call_index
     old, recent = conversation[:cut], conversation[cut:]
-    if _contains_cache_control(static) or _contains_cache_control(old):
+    if _contains_cache_control(static) or _contains_cache_control(conversation):
         return messages, _stats(original_chars, original_chars)
     old_text = "\n".join(_message_text(m) for m in old)
     if not old or len(old_text) < min_old_chars:
@@ -508,7 +507,7 @@ def compact_anthropic_messages(
     cut = _bucketed_cut(len(conversation), keep_recent, cut_step)
     if cut <= 0:
         return messages, _stats(total, total)
-    if _contains_cache_control(system) or _contains_cache_control(conversation[:cut]):
+    if _contains_cache_control(system) or _contains_cache_control(conversation):
         return messages, _stats(total, total)
     uses, results = _anthropic_pair_ids(conversation)
     # Keep every retained tool_result paired with its tool_use. If a cut lands
@@ -581,7 +580,7 @@ def compact_response_input(
     cut = _bucketed_cut(len(conversation), keep_recent, cut_step)
     if cut <= 0:
         return items, _stats(before, before)
-    if _contains_cache_control(static) or _contains_cache_control(conversation[:cut]):
+    if _contains_cache_control(static) or _contains_cache_control(conversation):
         return items, _stats(before, before)
     # Never retain a function output without its matching call.
     while cut < len(conversation) and conversation[cut].get("type") == "function_call_output":
