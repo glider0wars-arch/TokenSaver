@@ -21,5 +21,5 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
-      - name: Run cache-aware retention benchmark
+      - name: Run offline retention and cost benchmark
         run: python -m benchmarks.run
