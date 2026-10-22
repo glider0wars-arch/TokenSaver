@@ -317,13 +317,15 @@ def memory_file_lock(path: str | Path, *, stale_after: float = 60.0, timeout: fl
             pass
 
 
-def build_request(memory: RollingMemory, new_message: str) -> str:
-    """Build a prompt from compact memory and one new message without flattening it."""
+def build_request(memory: RollingMemory, new_message: str, *, response_style: str = "adaptive") -> str:
+    """Build a compact prompt while keeping the user's newest message byte-for-byte intact."""
+    from .preferences import response_style_guidance
+
     sections = memory.render(include_recent=True)
-    # The caller’s newest instruction is authoritative: never rewrite its whitespace or code.
-    message = new_message
-    parts = []
+    # The style is advisory only; the user's request remains authoritative.
+    guidance = response_style_guidance(response_style)
+    parts = [f"[TOKNIX RESPONSE PREFERENCE: {response_style.strip().lower()}]\n{guidance}"]
     if sections:
         parts.append("[COMPRESSED MEMORY]\n" + sections)
-    parts.append("[NEW MESSAGE]\n" + message)
+    parts.append("[NEW MESSAGE]\n" + new_message)
     return "\n\n".join(parts)
