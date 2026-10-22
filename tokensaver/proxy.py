@@ -576,6 +576,95 @@ def transform_payload(
     return body, empty
 
 
+def _payload_breakdown(path: str, payload: dict[str, Any], keep_recent: int) -> dict[str, str]:
+    """Return categorized request text for rough estimates, never provider-measured counts."""
+    out = {"system": "", "old_history": "", "recent_turns": "", "tool_outputs": ""}
+    if path.endswith("/chat/completions") and isinstance(payload.get("messages"), list):
+        static = [m for m in payload["messages"] if isinstance(m, dict) and m.get("role") in {"system", "developer"}]
+        conv = [m for m in payload["messages"] if isinstance(m, dict) and m.get("role") not in {"system", "developer"}]
+        out["system"] = "\n".join(_message_text(m) for m in static)
+        out["old_history"] = "\n".join(_message_text(m) for m in conv[:-keep_recent])
+        out["recent_turns"] = "\n".join(_message_text(m) for m in conv[-keep_recent:])
+        out["tool_outputs"] = "\n".join(str(m.get("content", "")) for m in conv if m.get("role") == "tool")
+    elif path.endswith("/messages") and isinstance(payload.get("messages"), list):
+        conv = [m for m in payload["messages"] if isinstance(m, dict)]
+        out["system"] = _content_text(payload.get("system", ""))
+        out["old_history"] = "\n".join(_message_text(m) for m in conv[:-keep_recent])
+        out["recent_turns"] = "\n".join(_message_text(m) for m in conv[-keep_recent:])
+        out["tool_outputs"] = "\n".join(_content_text(block.get("content", "")) for m in conv
+            for block in (m.get("content", []) if isinstance(m.get("content"), list) else [])
+            if isinstance(block, dict) and block.get("type") == "tool_result")
+    elif path.endswith("/responses") and isinstance(payload.get("input"), list):
+        static = [m for m in payload["input"] if isinstance(m, dict) and m.get("type", "message") == "message" and m.get("role") in {"system", "developer"}]
+        conv = [m for m in payload["input"] if isinstance(m, dict) and m not in static]
+        out["system"] = "\n".join(_response_item_text(m) for m in static)
+        out["old_history"] = "\n".join(_response_item_text(m) for m in conv[:-keep_recent])
+        out["recent_turns"] = "\n".join(_response_item_text(m) for m in conv[-keep_recent:])
+        out["tool_outputs"] = "\n".join(_content_text(m.get("output", "")) for m in conv if m.get("type") == "function_call_output")
+    return out
+
+
+def _usage_from_object(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, dict):
+        return None
+    usage = value.get("usage")
+    if not isinstance(usage, dict) and isinstance(value.get("response"), dict):
+        usage = value["response"].get("usage")
+    if not isinstance(usage, dict):
+        return None
+    try:
+        prompt_details = usage.get("prompt_tokens_details", {})
+        input_details = usage.get("input_tokens_details", {})
+        cached = int(usage.get("cache_read_input_tokens", usage.get("cached_input_tokens", 0)) or 0)
+        if isinstance(prompt_details, dict):
+            cached = max(cached, int(prompt_details.get("cached_tokens", 0) or 0))
+        if isinstance(input_details, dict):
+            cached = max(cached, int(input_details.get("cached_tokens", 0) or 0))
+        return {
+            "input": max(0, int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0)),
+            "output": max(0, int(usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0)),
+            "cached_input": max(0, cached),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_provider_usage(raw: bytes, content_type: str) -> dict[str, int] | None:
+    text_value = raw.decode("utf-8", errors="replace")
+    if "text/event-stream" in content_type.lower():
+        found = None
+        for line in text_value.splitlines():
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                usage = _usage_from_object(json.loads(data))
+            except json.JSONDecodeError:
+                continue
+            if usage is not None:
+                found = usage
+        return found
+    try:
+        return _usage_from_object(json.loads(text_value))
+    except json.JSONDecodeError:
+        return None
+
+
+def _record_provider_usage(server: Any, usage: dict[str, int] | None) -> None:
+    if usage is None:
+        return
+    with server.stats_lock:
+        stats = server.stats
+        for key, value in (("provider_input_tokens", usage["input"]),
+                           ("provider_output_tokens", usage["output"]),
+                           ("provider_cached_input_tokens", usage["cached_input"])):
+            stats[key] = stats.get(key, 0) + value
+        stats["provider_usage_responses"] = stats.get("provider_usage_responses", 0) + 1
+
+
+
 class TokenSaverProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "TokenSaverGateway/0.4"
