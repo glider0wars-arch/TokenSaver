@@ -28,6 +28,7 @@ class MemoryTests(unittest.TestCase):
         self.assertIn("Build a game", prompt)
         self.assertIn("[NEW MESSAGE]", prompt)
         self.assertIn("Add diplomacy", prompt)
+        self.assertNotIn("\\\\n", prompt)
 
     def test_save_and_load_roundtrip(self):
         memory = RollingMemory(project="Test")
