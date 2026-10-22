@@ -96,8 +96,8 @@ class GatewaySecurityTests(unittest.TestCase):
         })
         response = self.request(
             server,
-            "POST /v1/chat/completions HTTP/1.1\\r\\nHost: localhost\\r\\n"
-            "Content-Length: 0\\r\\nContent-Length: 0\\r\\nConnection: close\\r\\n\\r\\n",
+            "POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\n"
+            "Content-Length: 0\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
         )
         self.assertIn("400", response)
         self.assertIn("Content-Length", response)
