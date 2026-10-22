@@ -2,9 +2,9 @@ name: tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/benchmark-and-tool-output-pr2]
   pull_request:
-    branches: [main, fix/review-bugs]
+    branches: [main, fix/review-bugs, feat/benchmark-and-tool-output-pr2]
 
 jobs:
   unittest:
