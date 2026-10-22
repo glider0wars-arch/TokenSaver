@@ -155,18 +155,18 @@ class ReviewRegressionTests(unittest.TestCase):
 
 
     def test_tool_output_compression_keeps_errors_and_handles_windows_newlines(self):
-        repeated = "ordinary repeated log line" + "\\r\\n"
-        source = "\\x1b[31mSTART\\x1b[0m\\r\\n" + repeated * 25 + "ERROR: exact failure detail\\r\\nخطا: جزئیات مهم\\r\\nTAIL"
+        repeated = "ordinary repeated log line" + "\r\n"
+        source = "\x1b[31mSTART\x1b[0m\r\n" + repeated * 25 + "ERROR: exact failure detail\r\nخطا: جزئیات مهم\r\nTAIL"
         result = _compress_tool_output_text(source, max_chars=100, head_lines=2, tail_lines=2)
-        self.assertNotIn("\\x1b[", result)
+        self.assertNotIn("\x1b[", result)
         self.assertIn("repeated x25", result)
         self.assertIn("ERROR: exact failure detail", result)
         self.assertIn("خطا: جزئیات مهم", result)
         self.assertIn("omitted]", result)
 
     def test_tool_output_compression_protects_latest_tool_cycle(self):
-        old_output = "old noisy output\\n" * 200
-        latest_output = "latest tool output must remain unchanged\\n" * 150
+        old_output = "old noisy output\n" * 200
+        latest_output = "latest tool output must remain unchanged\n" * 150
         messages = [
             {"role": "user", "content": "old request"},
             {"role": "assistant", "content": None, "tool_calls": [
@@ -182,7 +182,7 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertEqual(messages[4]["content"], latest_output)
 
     def test_duplicate_earlier_tool_output_becomes_reference(self):
-        same = "line one\\nline two"
+        same = "line one\nline two"
         messages = [
             {"role": "tool", "tool_call_id": "first", "content": same},
             {"role": "assistant", "content": "between"},
@@ -198,7 +198,7 @@ class ReviewRegressionTests(unittest.TestCase):
             "application/json",
         )
         self.assertEqual(json_usage, {"input": 20, "output": 7, "cached_input": 5})
-        sse = b'data: {"type":"response.completed","response":{"usage":{"input_tokens":12,"output_tokens":3,"input_tokens_details":{"cached_tokens":4}}}}\\n\\ndata: [DONE]\\n\\n'
+        sse = b'data: {"type":"response.completed","response":{"usage":{"input_tokens":12,"output_tokens":3,"input_tokens_details":{"cached_tokens":4}}}}\n\ndata: [DONE]\n\n'
         self.assertEqual(
             _parse_provider_usage(sse, "text/event-stream"),
             {"input": 12, "output": 3, "cached_input": 4},
