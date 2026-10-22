@@ -78,3 +78,18 @@ Token counts differ by provider and tokenizer. Compare actual usage metadata whe
 ## License
 
 No license has been added yet. Until one is added, normal copyright restrictions apply.
+
+
+## Results
+
+Run `python -m benchmarks.run` to replay the checked-in coding-agent, long-chat, and mixed Persian/English fixtures. The command prints a Markdown table with character counts, rough token estimates, estimated cache-aware input cost, and retention of exact "needle" facts. CI runs the same benchmark and fails if retention falls below 95%.
+
+No savings figures are hard-coded here: publish the table produced by the benchmark for the exact code revision being described. Token counts are estimates unless the optional live mode reports provider-returned usage. Cache-aware cost is illustrative and depends on provider pricing and cache behavior.
+
+## When this does NOT help
+
+- **Subscription apps:** TokenSaver's local API gateway only sees requests routed through it. It cannot compact hidden conversation history inside the official ChatGPT or Claude apps.
+- **Tools with built-in compaction:** Claude Code and other agent tools may already summarize old context. An extra compaction layer can duplicate work or remove useful detail.
+- **Cache trade-offs:** Changing an old prompt prefix may reduce cache hits. Fewer input tokens do not guarantee a lower bill; compare the benchmark's cache-aware estimate with provider-reported usage and actual pricing.
+- **Quality-sensitive work:** Extractive compaction can omit facts that are not recognized as important. Keep a transcript for auditability and validate answer quality on representative tasks.
+- **Already-small requests:** The gateway may leave short or cache-marked requests unchanged, and compression can increase size in some cases.
