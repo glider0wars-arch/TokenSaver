@@ -61,6 +61,23 @@ class MemoryTests(unittest.TestCase):
             memory.add("DECISIONS", "x")
         self.assertEqual(memory.sections, before)
 
+    def test_failed_add_restores_previous_eviction_report(self):
+        memory = RollingMemory(max_total_chars=5)
+        memory.sections["GOALS"] = ["12345"]
+        memory.last_evicted = ["OPEN_TASKS"]
+        with self.assertRaises(ValueError):
+            memory.add("DECISIONS", "x")
+        self.assertEqual(memory.sections["GOALS"], ["12345"])
+        self.assertEqual(memory.last_evicted, ["OPEN_TASKS"])
+
+    def test_recent_context_over_item_limit_is_not_silently_discarded(self):
+        memory = RollingMemory(max_items_per_category=1)
+        memory.sections["RECENT_CONTEXT"] = ["first", "second"]
+        before = {key: list(value) for key, value in memory.sections.items()}
+        with self.assertRaisesRegex(ValueError, "RECENT_CONTEXT"):
+            memory._enforce_limits()
+        self.assertEqual(memory.sections, before)
+
     def test_save_and_load_roundtrip_and_backup(self):
         memory = RollingMemory(project="Test")
         memory.add("DECISIONS", "Use standard library")
