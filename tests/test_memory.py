@@ -38,14 +38,14 @@ class MemoryTests(unittest.TestCase):
         prompt = build_request(memory, "Fix this:\n  return 1")
         self.assertIn("[COMPRESSED MEMORY]", prompt)
         self.assertIn("Build a game", prompt)
-        self.assertIn("[NEW MESSAGE]", prompt)
+        self.assertIn("[NEW MESSAGE]\n" + message, prompt)
         self.assertIn("Fix this:\n  return 1", prompt)
 
     def test_request_preserves_new_message_whitespace_exactly(self):
         memory = RollingMemory(project="Example")
-        message = "First  line\\n\\n\\nSecond line  "
+        message = "First  line\n\n\nSecond line  "
         prompt = build_request(memory, message)
-        self.assertIn("[NEW MESSAGE]\\n" + message, prompt)
+        self.assertIn("[NEW MESSAGE]\n" + message, prompt)
     def test_category_and_total_memory_limits(self):
         memory = RollingMemory(max_items_per_category=2, max_total_chars=100)
         memory.add("GOALS", "first fact")
