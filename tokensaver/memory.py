@@ -142,24 +142,29 @@ class RollingMemory:
         for category in CATEGORIES:
             items = self.sections.get(category, [])
             if items:
-                lines.append(f"\n## {category}")
+                lines.append(f"
+## {category}")
                 lines.extend(f"- {item}" for item in items)
         if include_recent and self.recent_turns:
-            lines.append("\n## RECENT_TURNS")
+            lines.append("
+## RECENT_TURNS")
             lines.extend(f"- {turn['role']}: {turn['content']}" for turn in self.recent_turns)
-        return "\n".join(lines).strip()
+        return "
+".join(lines).strip()
 
     def save(self, path: str | Path) -> None:
         self._enforce_limits()
         target = Path(path).expanduser()
         target.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(self.to_dict(), ensure_ascii=False, indent=2) + "\n"
+        payload = json.dumps(self.to_dict(), ensure_ascii=False, indent=2) + "
+"
         backup = target.with_suffix(target.suffix + ".bak")
         temp_name: str | None = None
         try:
             if target.exists():
                 shutil.copy2(target, backup)
-            with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="\n", dir=target.parent,
+            with tempfile.NamedTemporaryFile("w", encoding="utf-8", newline="
+", dir=target.parent,
                                              prefix=target.name + ".", suffix=".tmp", delete=False) as temp:
                 temp_name = temp.name
                 temp.write(payload)
@@ -324,8 +329,13 @@ def build_request(memory: RollingMemory, new_message: str, *, response_style: st
     sections = memory.render(include_recent=True)
     # The style is advisory only; the user's request remains authoritative.
     guidance = response_style_guidance(response_style)
-    parts = [f"[TOKNIX RESPONSE PREFERENCE: {response_style.strip().lower()}]\n{guidance}"]
+    parts = [f"[TOKNIX RESPONSE PREFERENCE: {response_style.strip().lower()}]
+{guidance}"]
     if sections:
-        parts.append("[COMPRESSED MEMORY]\n" + sections)
-    parts.append("[NEW MESSAGE]\n" + new_message)
-    return "\n\n".join(parts)
+        parts.append("[COMPRESSED MEMORY]
+" + sections)
+    parts.append("[NEW MESSAGE]
+" + new_message)
+    return "
+
+".join(parts)
