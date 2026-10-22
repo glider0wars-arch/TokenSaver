@@ -155,17 +155,17 @@ class ProxyTests(unittest.TestCase):
             "application/json",
         )
         self.assertEqual(usage, {
-            "provider_input_tokens": 100,
-            "provider_output_tokens": 20,
-            "provider_cached_input_tokens": 30,
+            "input": 100,
+            "output": 20,
+            "cached_input": 30,
         })
         sse = (b'data: {"type":"response.completed","response":{"usage":{"input_tokens":11,"output_tokens":4,'
                b'"input_tokens_details":{"cached_tokens":3}}}\n\n')
         usage = _parse_provider_usage(sse, "text/event-stream")
         self.assertEqual(usage, {
-            "provider_input_tokens": 11,
-            "provider_output_tokens": 4,
-            "provider_cached_input_tokens": 3,
+            "input": 11,
+            "output": 4,
+            "cached_input": 3,
         })
 
     def test_important_regex_does_not_promote_generic_modal_words_or_slashes(self):
