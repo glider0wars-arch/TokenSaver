@@ -177,12 +177,16 @@ def _message_text(message: dict[str, Any]) -> str:
 
 _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
-_TOOL_OUTPUT_REFERENCE = "[identical tool output repeated later; see message {index}]"
+_TOOL_OUTPUT_REFERENCE = "[identical tool output repeated later; see the later occurrence]"
 
 
 def _compress_tool_output_text(text: str, max_chars: int = _DEFAULT_TOOL_OUTPUT_MAX_CHARS,
                                head_lines: int = 8, tail_lines: int = 8) -> str:
-    """Conservatively shrink noisy tool output while retaining important lines."""
+    """Shrink noisy output, retaining all important lines even if they exceed the cap."""
+    if max_chars < 1:
+        raise ValueError("max_chars must be a positive integer.")
+    if head_lines < 0 or tail_lines < 0:
+        raise ValueError("head_lines and tail_lines must be non-negative.")
     cleaned = _ANSI_ESCAPE.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
     lines = cleaned.split("\n")
     collapsed: list[str] = []
@@ -196,41 +200,42 @@ def _compress_tool_output_text(text: str, max_chars: int = _DEFAULT_TOOL_OUTPUT_
             line = f"{line} (repeated x{j - i})"
         collapsed.append(line)
         i = j
-    rendered = "\n".join(collapsed)
-    if len(rendered) <= max_chars:
-        return rendered
-    keep = set(range(min(head_lines, len(collapsed))))
-    keep.update(range(max(0, len(collapsed) - tail_lines), len(collapsed)))
-    keep.update(i for i, line in enumerate(collapsed) if _IMPORTANT.search(line))
-    output: list[str] = []
-    omitted = 0
-    in_omitted = False
-    for index, line in enumerate(collapsed):
+    if len("\n".join(collapsed)) <= max_chars:
+        return "\n".join(collapsed)
+    important = {i for i, line in enumerate(collapsed) if _IMPORTANT.search(line)}
+    def render(keep: set[int]) -> str:
+        output: list[str] = []
+        omitted = 0
+        in_omitted = False
+        for index, line in enumerate(collapsed):
+            if index in keep:
+                if in_omitted:
+                    output.append(f"[{omitted} lines omitted]")
+                    omitted = 0
+                    in_omitted = False
+                output.append(line)
+            else:
+                omitted += 1
+                in_omitted = True
+        if in_omitted:
+            output.append(f"[{omitted} lines omitted]")
+        return "\n".join(output)
+    result = render(important)
+    if len(result) > max_chars:
+        # Important facts outrank the size target; never silently discard them.
+        return "\n".join(line for i, line in enumerate(collapsed) if i in important)
+    priority = list(range(min(head_lines, len(collapsed))))
+    priority.extend(i for i in range(max(0, len(collapsed) - tail_lines), len(collapsed)) if i not in priority)
+    priority.extend(i for i in range(len(collapsed)) if i not in important and i not in priority)
+    keep = set(important)
+    for index in priority:
         if index in keep:
-            if in_omitted:
-                output.append(f"[{omitted} lines omitted]")
-                omitted = 0
-                in_omitted = False
-            output.append(line)
-        else:
-            omitted += 1
-            in_omitted = True
-    if in_omitted:
-        output.append(f"[{omitted} lines omitted]")
-    result = "\n".join(output)
-    if len(result) <= max_chars:
-        return result
-    # Important lines win over the nominal cap, so errors are never silently lost.
-    important = [line for line in collapsed if _IMPORTANT.search(line)]
-    selected = set(important)
-    selected.update(line for line in output if line.startswith("[") and "omitted]" in line)
-    budget = max(0, max_chars - sum(len(line) + 1 for line in selected) - 24)
-    for line in output:
-        if line in selected:
             continue
-        if sum(len(x) + 1 for x in selected) < max_chars - 24 and len(line) <= budget:
-            selected.add(line)
-    return "\n".join(line for line in output if line in selected)
+        candidate = set(keep)
+        candidate.add(index)
+        if len(render(candidate)) <= max_chars:
+            keep = candidate
+    return render(keep)
 
 
 def _tool_output_slots(items: list[Any], kind: str) -> list[tuple[int, Any, str, str]]:
@@ -287,20 +292,23 @@ def _compress_payload_tool_outputs(items: list[Any] | str, kind: str | dict[str,
                                 and isinstance(items[i].get("content"), list)
                                 and any(isinstance(b, dict) and b.get("type") == "tool_use" for b in items[i]["content"])), len(items))
     slots = _tool_output_slots(items, kind)
-    later: dict[str, int] = {}
+    # Only reference output in the protected latest cycle, which survives compaction.
+    later: set[str] = set()
+    for index, _owner, _key, raw_text in slots:
+        if index >= protected_start:
+            later.add(_ANSI_ESCAPE.sub("", raw_text).replace("\r\n", "\n").replace("\r", "\n"))
     saved = 0
-    for index, owner, key, raw_text in reversed(slots):
+    for index, owner, key, raw_text in slots:
         cleaned = _ANSI_ESCAPE.sub("", raw_text).replace("\r\n", "\n").replace("\r", "\n")
         if index < protected_start:
             if cleaned in later:
-                replacement = _TOOL_OUTPUT_REFERENCE.format(index=later[cleaned] + 1)
+                replacement = _TOOL_OUTPUT_REFERENCE
             elif len(cleaned) > max_chars:
                 replacement = _compress_tool_output_text(cleaned, max_chars=max_chars)
             else:
                 replacement = cleaned
             owner[key] = replacement
             saved += max(0, len(raw_text) - len(replacement))
-        later.setdefault(cleaned, index)
     return saved
 
 
