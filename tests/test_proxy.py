@@ -1,7 +1,8 @@
 import unittest
 
 from tokensaver.proxy import (
-    _IMPORTANT, compact_anthropic_messages, compact_chat_messages,
+    _IMPORTANT, _compress_output_text, _compress_payload_tool_outputs,
+    _usage_from_response, compact_anthropic_messages, compact_chat_messages,
     compact_response_input, transform_payload,
 )
 
@@ -118,6 +119,53 @@ class ProxyTests(unittest.TestCase):
         self.assertTrue(stats["compressed"])
         reasoning_index = next(i for i, item in enumerate(compacted) if item.get("type") == "reasoning")
         self.assertEqual(compacted[reasoning_index + 1].get("content"), "The item following reasoning")
+
+    def test_tool_output_compression_keeps_errors_persian_and_windows_lines(self):
+        raw = ("\\x1b[32mINFO repeated line\\x1b[0m\\r\\n" * 80
+               + "Traceback (most recent call last):\\r\\n"
+               + "ValueError: exact failure\\r\\n"
+               + "خطا: اطلاعات مهم را حفظ کن\\r\\n"
+               + "tail marker\\r\\n")
+        compressed = _compress_output_text(raw, 300, head_lines=3, tail_lines=3)
+        self.assertNotIn("\\x1b[32m", compressed)
+        self.assertIn("ValueError: exact failure", compressed)
+        self.assertIn("خطا: اطلاعات مهم را حفظ کن", compressed)
+        self.assertIn("tail marker", compressed)
+        self.assertIn("repeated x80", compressed)
+
+    def test_tool_output_compression_protects_latest_tool_cycle(self):
+        old_output = "INFO repetitive log line\\n" * 100
+        latest_output = "LATEST TOOL OUTPUT MUST REMAIN EXACT\\n" * 100
+        body = {"messages": [
+            {"role": "assistant", "tool_calls": [{"id": "old-call", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "old-call", "content": old_output},
+            {"role": "assistant", "content": "processing"},
+            {"role": "assistant", "tool_calls": [{"id": "new-call", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "new-call", "content": latest_output},
+        ]}
+        with unittest.mock.patch.dict("os.environ", {"TOKENSAVER_TOOL_OUTPUT_MAX_CHARS": "256"}):
+            _compress_payload_tool_outputs("/v1/chat/completions", body)
+        self.assertLess(len(body["messages"][1]["content"]), len(old_output))
+        self.assertEqual(body["messages"][4]["content"], latest_output)
+
+    def test_usage_parser_handles_json_and_sse_responses(self):
+        usage = _usage_from_response(
+            b'{"usage":{"prompt_tokens":100,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":30}}}',
+            is_sse=False,
+        )
+        self.assertEqual(usage, {
+            "provider_input_tokens": 100,
+            "provider_output_tokens": 20,
+            "provider_cached_input_tokens": 30,
+        })
+        sse = (b'data: {"type":"response.completed","response":{"usage":{"input_tokens":11,"output_tokens":4,'
+               b'"input_tokens_details":{"cached_tokens":3}}}\\n\\n')
+        usage = _usage_from_response(sse, is_sse=True)
+        self.assertEqual(usage, {
+            "provider_input_tokens": 11,
+            "provider_output_tokens": 4,
+            "provider_cached_input_tokens": 3,
+        })
 
     def test_important_regex_does_not_promote_generic_modal_words_or_slashes(self):
         for line in ("We must update this later.", "We should look at this.", "باید این کار را انجام بدهیم", "The path is /tmp/cache"):
