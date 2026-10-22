@@ -120,6 +120,114 @@ def load_config() -> GatewayConfig:
     )
 
 
+
+_ANSI_ESCAPE = re.compile(r"\\x1b\\[[0-?]*[ -/]*[@-~]")
+
+
+def _compress_output_text(text: str, max_chars: int, *, head_lines: int = 12, tail_lines: int = 12) -> str:
+    """Compress verbose tool output while retaining errors and head/tail context."""
+    cleaned = _ANSI_ESCAPE.sub("", text).replace("\\r\\n", "\\n").replace("\\r", "\\n")
+    lines = cleaned.splitlines()
+    collapsed: list[str] = []
+    i = 0
+    while i < len(lines):
+        j = i + 1
+        while j < len(lines) and lines[j] == lines[i]:
+            j += 1
+        count = j - i
+        collapsed.append(lines[i] if count == 1 else f"{lines[i]} (repeated x{count})")
+        i = j
+    if len("\\n".join(collapsed)) <= max_chars:
+        return "\\n".join(collapsed)
+    selected = set(range(min(head_lines, len(collapsed))))
+    selected.update(range(max(0, len(collapsed) - tail_lines), len(collapsed)))
+    selected.update(i for i, line in enumerate(collapsed) if _IMPORTANT.search(line))
+    ordered = sorted(selected)
+    out: list[str] = []
+    previous = -1
+    for index in ordered:
+        if previous >= 0 and index > previous + 1:
+            out.append(f"[{index - previous - 1} lines omitted]")
+        out.append(collapsed[index])
+        previous = index
+    result = "\\n".join(out)
+    if len(result) <= max_chars:
+        return result
+    # Important lines take priority; trim only non-important head/tail lines.
+    important = [line for line in collapsed if _IMPORTANT.search(line)]
+    essential = "\\n".join(important)
+    if len(essential) >= max_chars:
+        return essential
+    remaining = max_chars - len(essential) - 24
+    if remaining <= 0:
+        return essential
+    head = "\\n".join(collapsed[:head_lines])
+    tail = "\\n".join(collapsed[-tail_lines:])
+    context = (head + "\\n[output truncated]\\n" + tail)[:remaining]
+    return essential + "\\n[N lines omitted]\\n" + context
+
+
+def _compress_payload_tool_outputs(path: str, body: dict[str, Any]) -> None:
+    """Compress older tool outputs but protect the newest tool cycle by default."""
+    try:
+        max_chars = max(256, int(os.getenv("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", "4000")))
+    except ValueError:
+        max_chars = 4000
+    if os.getenv("TOKENSAVER_COMPRESS_LATEST_TOOL_CYCLE", "0") == "1":
+        protect_latest = False
+    else:
+        protect_latest = True
+    key = "input" if path.endswith("/responses") and isinstance(body.get("input"), list) else "messages"
+    values = body.get(key)
+    if not isinstance(values, list):
+        return
+    entries: list[tuple[int, Any, Any, str]] = []
+    call_indices: list[int] = []
+    for index, item in enumerate(values):
+        if not isinstance(item, dict):
+            continue
+        if item.get("tool_calls"):
+            call_indices.append(index)
+        if isinstance(item.get("content"), list):
+            for block_index, block in enumerate(item["content"]):
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "tool_use":
+                    call_indices.append(index)
+                if block.get("type") == "tool_result" and isinstance(block.get("content"), str):
+                    entries.append((index, item, block_index, block["content"]))
+        elif item.get("role") == "tool" and isinstance(item.get("content"), str):
+            entries.append((index, item, "content", item["content"]))
+        if item.get("type") == "function_call":
+            call_indices.append(index)
+        if item.get("type") == "function_call_output" and isinstance(item.get("output"), str):
+            entries.append((index, item, "output", item["output"]))
+    if not entries:
+        return
+    output_indices = [entry[0] for entry in entries]
+    latest_cycle_start = max(call_indices) if call_indices else max(output_indices)
+    if not protect_latest:
+        latest_cycle_start = len(values) + 1
+    last_for_text: dict[str, int] = {}
+    for index, _, _, raw in entries:
+        if not _IMPORTANT.search(raw):
+            last_for_text[raw] = index
+    for index, container, key_or_block, raw in entries:
+        if index >= latest_cycle_start:
+            continue
+        if len(raw) <= max_chars and last_for_text.get(raw, index) <= index:
+            continue
+        replacement = raw
+        if last_for_text.get(raw, index) > index and not _IMPORTANT.search(raw):
+            replacement = f"[duplicate tool output; repeated at message {last_for_text[raw] + 1}]"
+        elif len(raw) > max_chars:
+            replacement = _compress_output_text(raw, max_chars)
+        if isinstance(key_or_block, int):
+            container["content"][key_or_block]["content"] = replacement
+        else:
+            container[key_or_block] = replacement
+
+
 def _content_text(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -408,6 +516,7 @@ def transform_payload(
 ) -> tuple[dict[str, Any], dict[str, int | bool]]:
     """Compact supported request formats and leave unrelated payloads unchanged."""
     body = json.loads(json.dumps(payload))
+    _compress_payload_tool_outputs(path, body)
     empty: dict[str, int | bool] = _stats(0, 0)
     if path.endswith("/chat/completions") and isinstance(body.get("messages"), list):
         body["messages"], stats = compact_chat_messages(
