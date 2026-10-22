@@ -70,43 +70,42 @@ def main() -> int:
     render.add_argument("path")
     render.add_argument("--no-recent", action="store_true")
 
-    report = sub.add_parser("report", help="Report measured provider usage and estimated context breakdown")
-    report.add_argument("--url", default="http://127.0.0.1:8765/stats", help="Gateway /stats URL")
-
     serve = sub.add_parser("serve", help="Start the local API compression gateway")
     serve.add_argument("--host", default=None)
     serve.add_argument("--port", type=int, default=None)
+
+    report = sub.add_parser("report", help="Show measured provider usage and estimated context categories")
+    report.add_argument("--url", default="http://127.0.0.1:8765/stats", help="Gateway stats endpoint")
 
     args = parser.parse_args()
     try:
         if args.command == "serve":
             from .proxy import serve as serve_proxy
             serve_proxy(args.host, args.port)
-            return 0\n        if args.command == "report":
-            try:
-                with urllib.request.urlopen(args.url, timeout=3) as response:
-                    stats = json.loads(response.read().decode("utf-8"))
-            except (OSError, ValueError, urllib.error.URLError) as exc:
-                raise ValueError(f"Could not read gateway stats from {args.url}: {type(exc).__name__}") from exc
-            rows = [
-                ("Provider input tokens", stats.get("provider_input_tokens", 0), "measured"),
-                ("Provider output tokens", stats.get("provider_output_tokens", 0), "measured"),
-                ("Provider cached input tokens", stats.get("provider_cached_input_tokens", 0), "measured"),
-                ("Responses with usage", stats.get("usage_responses", 0), "measured"),
-                ("System/developer context", stats.get("estimated_system_chars", 0), "estimated chars"),
-                ("Old history", stats.get("estimated_old_history_chars", 0), "estimated chars"),
-                ("Recent turns", stats.get("estimated_recent_chars", 0), "estimated chars"),
-                ("Tool outputs (subset of history)", stats.get("estimated_tool_output_chars", 0), "estimated chars"),
-                ("Characters saved", stats.get("chars_saved", 0), "measured chars"),
-                ("Transform errors", stats.get("transform_errors", 0), "measured count"),
-            ]
-            print("| Metric | Value | Type |")
-            print("| --- | ---: | --- |")
-            for label, value, kind in rows:
-                print(f"| {label} | {value} | {kind} |")
-            print("\nProvider token counts come from upstream usage metadata when available. Character breakdowns and rough token estimates are not provider-measured token counts.")
             return 0
-
+        if args.command == "report":
+            request = urllib.request.Request(args.url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(request, timeout=5) as response:
+                stats = json.loads(response.read().decode("utf-8"))
+            print("TokenSaver usage report")
+            print("Provider usage: MEASURED from upstream response usage objects")
+            print("Context breakdown: ESTIMATED from request text; not provider tokenizer counts")
+            print("")
+            print("| Category | Characters | Rough tokens (estimated) |")
+            print("| --- | ---: | ---: |")
+            for label, key in (("System/developer", "system"), ("Old history", "old_history"),
+                               ("Recent turns", "recent_turns"), ("Tool outputs", "tool_outputs")):
+                print(f"| {label} | {int(stats.get(key + '_chars', 0)):,} | {int(stats.get('estimated_' + key + '_tokens', 0)):,} |")
+            print("")
+            print("| Provider metric (measured) | Tokens |")
+            print("| --- | ---: |")
+            print(f"| Input tokens | {int(stats.get('provider_input_tokens', 0)):,} |")
+            print(f"| Output tokens | {int(stats.get('provider_output_tokens', 0)):,} |")
+            print(f"| Cached input tokens | {int(stats.get('provider_cached_input_tokens', 0)):,} |")
+            print("")
+            print(f"Requests: {int(stats.get('requests', 0))}; compressed requests: {int(stats.get('compressed_requests', 0))}; transform errors: {int(stats.get('transform_errors', 0))}")
+            print(f"Responses with parsed provider usage: {int(stats.get('provider_usage_responses', 0))}; parse/tee skips: {int(stats.get('provider_usage_parse_errors', 0))}")
+            return 0
         if args.command == "compress":
             result = compress_text(_read_input(args.file), deduplicate_lines=not args.keep_duplicates)
             if args.stats:
