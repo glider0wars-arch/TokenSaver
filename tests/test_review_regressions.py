@@ -9,6 +9,7 @@ from tokensaver.proxy import (
     _compress_tool_output_text,
     _compress_payload_tool_outputs,
     _parse_provider_usage,
+    _payload_breakdown,
     compact_anthropic_messages,
     compact_chat_messages,
     compact_response_input,
@@ -262,6 +263,20 @@ class ReviewRegressionTests(unittest.TestCase):
         developer_index = next(i for i, m in enumerate(compacted)
                                if m.get("role") == "developer" and "Late developer rule" in str(m.get("content", "")))
         self.assertGreater(developer_index, summary_index)
+
+
+    def test_responses_report_includes_top_level_instructions_in_system_bucket(self):
+        payload = {
+            "instructions": "Keep the output concise and preserve exact paths.",
+            "input": [
+                {"type": "message", "role": "developer", "content": "Never invent test results."},
+                {"type": "message", "role": "user", "content": "Question " * 30},
+                {"type": "message", "role": "assistant", "content": "Answer " * 30},
+            ],
+        }
+        breakdown = _payload_breakdown("/v1/responses", payload, keep_recent=1)
+        self.assertIn("Keep the output concise", breakdown["system"])
+        self.assertIn("Never invent test results", breakdown["system"])
 
 
 if __name__ == "__main__":
