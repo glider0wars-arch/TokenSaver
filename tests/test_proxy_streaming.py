@@ -13,7 +13,7 @@ class _StreamingResponse:
     reason = "OK"
 
     def __init__(self):
-        self.chunks = [b"data: first event\\n\\n", b"data: [DONE]\\n\\n"]
+        self.chunks = [b"data: first event\n\n", b"data: [DONE]\n\n"]
         self.read_calls = 0
 
     def getheaders(self):
