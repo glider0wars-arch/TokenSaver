@@ -213,9 +213,6 @@ def compact_chat_messages(
     """Compact older chat turns while preserving stable bucketed prefixes."""
     if not isinstance(messages, list) or keep_recent < 1 or max_summary_chars < 100 or cut_step < 1:
         raise ValueError("Invalid messages or compression settings")
-    if _contains_cache_control(messages):
-        total = sum(len(_message_text(m)) for m in messages if isinstance(m, dict))
-        return messages, _stats(total, total)
     static: list[dict[str, Any]] = []
     conversation: list[dict[str, Any]] = []
     for item in messages:
@@ -232,6 +229,8 @@ def compact_chat_messages(
     if cut <= 0:
         return messages, _stats(original_chars, original_chars)
     old, recent = conversation[:cut], conversation[cut:]
+    if _contains_cache_control(static) or _contains_cache_control(old):
+        return messages, _stats(original_chars, original_chars)
     old_text = "\n".join(_message_text(m) for m in old)
     if not old or len(old_text) < min_old_chars:
         return messages, _stats(original_chars, original_chars)
@@ -270,9 +269,6 @@ def compact_anthropic_messages(
     min_total_chars: int = 5000, cut_step: int = 4,
 ) -> tuple[list[Any], dict[str, int | bool]]:
     """Compact Anthropic Messages while keeping tool_use/tool_result pairs intact."""
-    if _contains_cache_control(system) or _contains_cache_control(messages):
-        total = len(_content_text(system)) + sum(len(_message_text(m)) for m in messages if isinstance(m, dict))
-        return messages, _stats(total, total)
     static: list[dict[str, Any]] = []
     conversation = [m for m in messages if isinstance(m, dict)]
     total = len(_content_text(system)) + sum(len(_message_text(m)) for m in conversation)
@@ -280,6 +276,8 @@ def compact_anthropic_messages(
         return messages, _stats(total, total)
     cut = _bucketed_cut(len(conversation), keep_recent, cut_step)
     if cut <= 0:
+        return messages, _stats(total, total)
+    if _contains_cache_control(system) or _contains_cache_control(conversation[:cut]):
         return messages, _stats(total, total)
     uses, results = _anthropic_pair_ids(conversation)
     # If a tool pair straddles the cut, move it so both halves remain together.
@@ -326,9 +324,6 @@ def compact_response_input(
     """Compact Responses API input without splitting reasoning from its next item."""
     if not isinstance(items, list) or keep_recent < 1 or max_summary_chars < 100 or cut_step < 1:
         raise ValueError("Invalid input items or compression settings")
-    if _contains_cache_control(items):
-        total = sum(len(_response_item_text(x)) for x in items if isinstance(x, dict))
-        return items, _stats(total, total)
     static: list[dict[str, Any]] = []
     conversation: list[dict[str, Any]] = []
     for item in items:
@@ -343,6 +338,8 @@ def compact_response_input(
         return items, _stats(before, before)
     cut = _bucketed_cut(len(conversation), keep_recent, cut_step)
     if cut <= 0:
+        return items, _stats(before, before)
+    if _contains_cache_control(static) or _contains_cache_control(conversation[:cut]):
         return items, _stats(before, before)
     # A reasoning item belongs with the item immediately following it.
     while cut > 0 and conversation[cut - 1].get("type") == "reasoning":
@@ -371,8 +368,6 @@ def transform_payload(
     """Compact supported request formats and leave unrelated payloads unchanged."""
     body = json.loads(json.dumps(payload))
     empty: dict[str, int | bool] = _stats(0, 0)
-    if _contains_cache_control(body):
-        return body, empty
     if path.endswith("/chat/completions") and isinstance(body.get("messages"), list):
         body["messages"], stats = compact_chat_messages(
             body["messages"], keep_recent=keep_recent, max_summary_chars=max_summary_chars,
