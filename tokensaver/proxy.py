@@ -855,10 +855,10 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                         else:
                             tee_overflow = True
                             tee.clear()
-                    self.wfile.write(f"{len(chunk):X}\\r\\n".encode("ascii"))
-                    self.wfile.write(chunk + b"\\r\\n")
+                    self.wfile.write(f"{len(chunk):X}\r\n".encode("ascii"))
+                    self.wfile.write(chunk + b"\r\n")
                     self.wfile.flush()
-                self.wfile.write(b"0\\r\\n\\r\\n")
+                self.wfile.write(b"0\r\n\r\n")
                 if not tee_overflow and ("json" in content_type.lower() or "text/event-stream" in content_type.lower()):
                     usage = _parse_provider_usage(bytes(tee), content_type)
                     if usage is None:
