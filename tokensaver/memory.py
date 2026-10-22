@@ -107,6 +107,7 @@ class RollingMemory:
         return "\n".join(lines).strip()
 
     def save(self, path: str | Path) -> None:
+        self._enforce_limits()
         target = Path(path).expanduser()
         target.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(self.to_dict(), ensure_ascii=False, indent=2) + "\n"
