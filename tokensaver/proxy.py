@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import hmac
+import ipaddress
 import http.client
 import json
 import math
@@ -101,6 +102,16 @@ def load_config() -> GatewayConfig:
     upstream_key = os.getenv("TOKENSAVER_UPSTREAM_API_KEY", "")
     if any(ch in token for ch in "\r\n") or any(ch in upstream_key for ch in "\r\n"):
         raise ValueError("TOKENSAVER_GATEWAY_TOKEN and TOKENSAVER_UPSTREAM_API_KEY must not contain newlines.")
+    # The gateway forwards client Authorization headers as well as configured API
+    # keys. Do not allow credentials to cross a remote cleartext HTTP connection.
+    is_loopback_upstream = hostname.lower() == "localhost"
+    if not is_loopback_upstream:
+        try:
+            is_loopback_upstream = ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            is_loopback_upstream = False
+    if parsed.scheme == "http" and not is_loopback_upstream:
+        raise ValueError("TOKENSAVER_UPSTREAM_BASE_URL must use HTTPS for non-loopback upstreams.")
     if allow_remote and not token:
         raise ValueError("TOKENSAVER_GATEWAY_TOKEN is required when TOKENSAVER_ALLOW_REMOTE=1.")
     if host not in {"127.0.0.1", "localhost", "::1"} and not allow_remote:
@@ -124,9 +135,37 @@ def load_config() -> GatewayConfig:
     )
 
 
+def _redact_payload_value(value: Any) -> Any:
+    """Replace nested image and binary payloads before serializing context text."""
+    if isinstance(value, dict):
+        kind = str(value.get("type", "")).lower()
+        if kind in {"image", "image_url", "input_image"} or "image_url" in value:
+            return "[image omitted]"
+        source = value.get("source")
+        if isinstance(source, dict) and source.get("type") == "base64" and isinstance(source.get("data"), str):
+            return "[image omitted]"
+        if kind == "base64" and isinstance(value.get("data"), str):
+            return "[image omitted]"
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in {"data_base64", "binary_data", "bytes"} and item is not None:
+                redacted[key] = "[binary omitted]"
+            else:
+                redacted[key] = _redact_payload_value(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_payload_value(item) for item in value]
+    return value
+
+
 def _content_text(content: Any) -> str:
     if isinstance(content, str):
         return content
+    if isinstance(content, dict):
+        redacted = _redact_payload_value(content)
+        if isinstance(redacted, str):
+            return redacted
+        return json.dumps(redacted, ensure_ascii=False, separators=(",", ":"))
     if isinstance(content, list):
         pieces: list[str] = []
         for part in content:
@@ -148,7 +187,7 @@ def _content_text(content: Any) -> str:
                 if isinstance(value, str):
                     pieces.append(value)
                 elif kind in {"tool_use", "tool_result", "function_call", "function_call_output"}:
-                    pieces.append(json.dumps(part, ensure_ascii=False, separators=(",", ":")))
+                    pieces.append(json.dumps(_redact_payload_value(part), ensure_ascii=False, separators=(",", ":")))
                 elif isinstance(part.get("content"), (str, list, dict)):
                     pieces.append(_content_text(part["content"]))
                 else:
