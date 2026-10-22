@@ -671,29 +671,53 @@ def _payload_breakdown(path: str, payload: dict[str, Any], keep_recent: int) -> 
     """Return categorized request text for rough estimates, never provider-measured counts."""
     out = {"system": "", "old_history": "", "recent_turns": "", "tool_outputs": ""}
     if path.endswith("/chat/completions") and isinstance(payload.get("messages"), list):
-        static = [m for m in payload["messages"] if isinstance(m, dict) and m.get("role") in {"system", "developer"}]
-        conv = [m for m in payload["messages"] if isinstance(m, dict) and m.get("role") not in {"system", "developer"}]
+        static: list[dict[str, Any]] = []
+        conv: list[dict[str, Any]] = []
+        seen_conversation = False
+        for raw in payload["messages"]:
+            item = raw if isinstance(raw, dict) else {"role": "user", "content": _content_text(raw)}
+            if not seen_conversation and item.get("role") in {"system", "developer"}:
+                static.append(item)
+            else:
+                seen_conversation = True
+                conv.append(item)
         out["system"] = "\n".join(_message_text(m) for m in static)
         out["old_history"] = "\n".join(_message_text(m) for m in conv[:-keep_recent])
         out["recent_turns"] = "\n".join(_message_text(m) for m in conv[-keep_recent:])
-        out["tool_outputs"] = "\n".join(str(m.get("content", "")) for m in conv if m.get("role") == "tool")
+        out["tool_outputs"] = "\n".join(_content_text(m.get("content", "")) for m in conv if m.get("role") == "tool")
     elif path.endswith("/messages") and isinstance(payload.get("messages"), list):
-        conv = [m for m in payload["messages"] if isinstance(m, dict)]
+        conv = [m if isinstance(m, dict) else {"role": "user", "content": _content_text(m)}
+                for m in payload["messages"]]
         out["system"] = _content_text(payload.get("system", ""))
         out["old_history"] = "\n".join(_message_text(m) for m in conv[:-keep_recent])
         out["recent_turns"] = "\n".join(_message_text(m) for m in conv[-keep_recent:])
         out["tool_outputs"] = "\n".join(_content_text(block.get("content", "")) for m in conv
             for block in (m.get("content", []) if isinstance(m.get("content"), list) else [])
             if isinstance(block, dict) and block.get("type") == "tool_result")
-    elif path.endswith("/responses") and isinstance(payload.get("input"), list):
-        static = [m for m in payload["input"] if isinstance(m, dict) and m.get("type", "message") == "message" and m.get("role") in {"system", "developer"}]
-        conv = [m for m in payload["input"] if isinstance(m, dict) and m not in static]
+    elif path.endswith("/responses"):
         instruction_text = _content_text(payload.get("instructions", ""))
-        static_text = "\n".join(_response_item_text(m) for m in static)
-        out["system"] = "\n".join(part for part in (instruction_text, static_text) if part)
-        out["old_history"] = "\n".join(_response_item_text(m) for m in conv[:-keep_recent])
-        out["recent_turns"] = "\n".join(_response_item_text(m) for m in conv[-keep_recent:])
-        out["tool_outputs"] = "\n".join(_content_text(m.get("output", "")) for m in conv if m.get("type") == "function_call_output")
+        input_value = payload.get("input")
+        if isinstance(input_value, str):
+            out["system"] = instruction_text
+            out["recent_turns"] = input_value
+        elif isinstance(input_value, list):
+            static: list[dict[str, Any]] = []
+            conv: list[dict[str, Any]] = []
+            seen_conversation = False
+            for raw in input_value:
+                item = raw if isinstance(raw, dict) else {"type": "message", "role": "user", "content": _content_text(raw)}
+                if (not seen_conversation and item.get("type", "message") == "message"
+                        and item.get("role") in {"system", "developer"}):
+                    static.append(item)
+                else:
+                    seen_conversation = True
+                    conv.append(item)
+            static_text = "\n".join(_response_item_text(m) for m in static)
+            out["system"] = "\n".join(part for part in (instruction_text, static_text) if part)
+            out["old_history"] = "\n".join(_response_item_text(m) for m in conv[:-keep_recent])
+            out["recent_turns"] = "\n".join(_response_item_text(m) for m in conv[-keep_recent:])
+            out["tool_outputs"] = "\n".join(_content_text(m.get("output", "")) for m in conv
+                if m.get("type") == "function_call_output")
     return out
 
 
