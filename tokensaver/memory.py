@@ -227,8 +227,12 @@ def _lock_owner_alive(lock_path: Path) -> bool:
         pid = int(owner)
     except FileNotFoundError:
         return False
-    except (OSError, UnicodeError, ValueError):
+    except PermissionError:
+        return True
+    except (UnicodeError, ValueError):
         return False
+    except OSError:
+        return True
     if pid <= 0:
         return False
     try:
