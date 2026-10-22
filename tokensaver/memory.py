@@ -220,24 +220,64 @@ class RollingMemory:
 
 
 
+def _lock_owner_alive(lock_path: Path) -> bool:
+    """Conservatively check whether the PID recorded in a lock still exists."""
+    try:
+        owner = lock_path.read_text(encoding="ascii").split(":", 1)[0]
+        pid = int(owner)
+    except FileNotFoundError:
+        return False
+    except (OSError, UnicodeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        # Unknown OS errors are treated as a live owner to avoid unsafe stealing.
+        return True
+    return True
+
+
 @contextmanager
 def memory_file_lock(path: str | Path, *, stale_after: float = 60.0, timeout: float = 10.0):
     """Cross-platform lock for a memory file's read-modify-write transaction."""
+    if stale_after < 0 or timeout < 0:
+        raise ValueError("Lock stale_after and timeout must be non-negative.")
     target = Path(path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
     lock_path = target.with_name(target.name + ".lock")
     deadline = time.monotonic() + timeout
     fd = None
+    lock_token = f"{os.getpid()}:{time.time_ns()}"
     while fd is None:
         try:
             fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            os.write(fd, str(os.getpid()).encode("ascii"))
+            try:
+                os.write(fd, lock_token.encode("ascii"))
+            except OSError:
+                os.close(fd)
+                fd = None
+                try:
+                    if lock_path.read_text(encoding="ascii") == lock_token:
+                        lock_path.unlink()
+                except OSError:
+                    pass
+                raise
         except FileExistsError:
             try:
-                if time.time() - lock_path.stat().st_mtime > stale_after:
-                    lock_path.unlink()
-                    continue
+                stale = time.time() - lock_path.stat().st_mtime > stale_after
             except FileNotFoundError:
+                continue
+            if stale and not _lock_owner_alive(lock_path):
+                try:
+                    lock_path.unlink()
+                except FileNotFoundError:
+                    pass
                 continue
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"Timed out waiting for memory lock: {lock_path}")
@@ -246,8 +286,10 @@ def memory_file_lock(path: str | Path, *, stale_after: float = 60.0, timeout: fl
         yield
     finally:
         os.close(fd)
+        # Only remove the lock we created. Never unlink a successor's lock.
         try:
-            lock_path.unlink()
+            if lock_path.read_text(encoding="ascii") == lock_token:
+                lock_path.unlink()
         except FileNotFoundError:
             pass
 
