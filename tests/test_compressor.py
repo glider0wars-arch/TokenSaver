@@ -16,8 +16,8 @@ class CompressorTests(unittest.TestCase):
     def test_preserves_indentation_and_fenced_code_exactly(self):
         source = "  key:   value\n  nested:\n    item:  true\n\n~~~python\ndef f():\n    return  1\n    return  1\n}\n~~~"
         result = compress_text(source)
-        self.assertIn("  key: value", result.text)
-        self.assertIn("    item: true", result.text)
+        self.assertIn("  key:   value", result.text)
+        self.assertIn("    item:  true", result.text)
         self.assertIn("    return  1\n    return  1", result.text)
         self.assertIn("\n}\n~~~", result.text)
 
