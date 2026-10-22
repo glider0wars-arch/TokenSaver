@@ -118,6 +118,30 @@ class GatewaySecurityTests(unittest.TestCase):
                 load_config()
 
 
+    def test_new_compression_and_usage_limits_are_validated_at_startup(self):
+        with patch.dict(os.environ, {
+            "TOKENSAVER_TOOL_OUTPUT_MAX_CHARS": "many",
+            "TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com",
+        }, clear=True):
+            with self.assertRaisesRegex(ValueError, "TOKENSAVER_TOOL_OUTPUT_MAX_CHARS must be an integer"):
+                load_config()
+        with patch.dict(os.environ, {
+            "TOKENSAVER_USAGE_TEE_MAX_BYTES": "1",
+            "TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com",
+        }, clear=True):
+            with self.assertRaisesRegex(ValueError, "TOKENSAVER_USAGE_TEE_MAX_BYTES must be 1024"):
+                load_config()
+
+    def test_new_limits_are_snapshotted_in_gateway_config(self):
+        with patch.dict(os.environ, {
+            "TOKENSAVER_TOOL_OUTPUT_MAX_CHARS": "2048",
+            "TOKENSAVER_USAGE_TEE_MAX_BYTES": "2097152",
+            "TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com",
+        }, clear=True):
+            config = load_config()
+        self.assertEqual(config.tool_output_max_chars, 2048)
+        self.assertEqual(config.usage_tee_max_bytes, 2097152)
+
     def test_remote_mode_without_auth_token_is_rejected_at_startup(self):
         with patch.dict(os.environ, {
             "TOKENSAVER_ALLOW_REMOTE": "1",
