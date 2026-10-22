@@ -303,6 +303,43 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertIn("[image omitted]", rendered)
         self.assertIn("[binary omitted]", rendered)
 
+    def test_payload_breakdown_keeps_late_developer_items_in_history(self):
+        from tokensaver.proxy import _payload_breakdown
+
+        chat = {"messages": [
+            {"role": "system", "content": "initial system"},
+            {"role": "user", "content": "old user context"},
+            {"role": "developer", "content": "late developer instruction"},
+            {"role": "user", "content": "recent user context"},
+        ]}
+        report = _payload_breakdown("/v1/chat/completions", chat, 2)
+        self.assertIn("initial system", report["system"])
+        self.assertNotIn("late developer instruction", report["system"])
+        self.assertIn("late developer instruction", report["recent_turns"])
+
+        responses = {"input": [
+            {"type": "message", "role": "developer", "content": "initial developer"},
+            {"type": "message", "role": "user", "content": "old user context"},
+            {"type": "message", "role": "developer", "content": "late developer instruction"},
+            {"type": "message", "role": "user", "content": "recent user context"},
+        ], "instructions": "top-level instructions"}
+        report = _payload_breakdown("/v1/responses", responses, 2)
+        self.assertIn("initial developer", report["system"])
+        self.assertNotIn("late developer instruction", report["system"])
+        self.assertIn("late developer instruction", report["recent_turns"])
+        self.assertIn("top-level instructions", report["system"])
+
+    def test_responses_string_input_is_included_in_estimated_breakdown(self):
+        from tokensaver.proxy import _payload_breakdown
+
+        report = _payload_breakdown(
+            "/v1/responses",
+            {"instructions": "fixed instructions", "input": "the actual user prompt"},
+            8,
+        )
+        self.assertIn("fixed instructions", report["system"])
+        self.assertIn("the actual user prompt", report["recent_turns"])
+
     def test_responses_report_includes_top_level_instructions_in_system_bucket(self):
         payload = {
             "instructions": "Keep the output concise and preserve exact paths.",
