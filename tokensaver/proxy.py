@@ -782,20 +782,30 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
         prefix = parsed.path.rstrip("/")
         target_path = prefix + self.path if prefix else self.path
         stats: dict[str, int | bool] = _stats(0, 0)
+        breakdown = {
+            "estimated_system_chars": 0,
+            "estimated_old_history_chars": 0,
+            "estimated_recent_chars": 0,
+            "estimated_tool_output_chars": 0,
+        }
         outgoing = raw
         if raw and self.command in {"POST", "PUT", "PATCH"} and "json" in self.headers.get("Content-Type", "").lower():
             try:
                 payload = json.loads(raw.decode("utf-8"))
-                if isinstance(payload, dict) and config.enabled:
-                    payload, stats = transform_payload(
-                        self.path.split("?", 1)[0], payload,
-                        keep_recent= config.keep_recent_messages,
-                        max_summary_chars=config.summary_max_chars,
-                        min_old_chars=config.min_old_chars,
-                        min_total_chars=config.min_total_chars,
-                        cut_step=config.cut_step,
+                if isinstance(payload, dict):
+                    breakdown = _payload_breakdown(
+                        self.path.split("?", 1)[0], payload, config.keep_recent_messages
                     )
-                    outgoing = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                    if config.enabled:
+                        payload, stats = transform_payload(
+                            self.path.split("?", 1)[0], payload,
+                            keep_recent=config.keep_recent_messages,
+                            max_summary_chars=config.summary_max_chars,
+                            min_old_chars=config.min_old_chars,
+                            min_total_chars=config.min_total_chars,
+                            cut_step=config.cut_step,
+                        )
+                        outgoing = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             except Exception:
                 # Preserve upstream behavior but make transform failures visible in /stats.
                 with self.server.stats_lock:  # type: ignore[attr-defined]
@@ -807,6 +817,8 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             st["compressed_requests"] += int(bool(stats.get("compressed")))
             st["chars_saved"] += max(0, int(stats.get("chars_saved", 0)))
             st.setdefault("transform_errors", 0)
+            for key, value in breakdown.items():
+                st[key] = int(st.get(key, 0)) + max(0, value)
         connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
         conn = connection_cls(parsed.hostname, parsed.port, timeout=config.upstream_timeout)
         headers: dict[str, str] = {}
@@ -827,6 +839,13 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
         try:
             conn.request(self.command, target_path, body=outgoing if self.command not in {"GET", "HEAD", "OPTIONS"} else None, headers=headers)
             upstream = conn.getresponse()
+            content_type = upstream.getheader("Content-Type", "").lower()
+            try:
+                tee_limit = max(1024, int(os.getenv("TOKENSAVER_USAGE_TEE_MAX_BYTES", "1048576")))
+            except ValueError:
+                tee_limit = 1048576
+            tee = bytearray()
+            tee_overflow = False
             self.send_response(upstream.status, upstream.reason)
             for key, value in upstream.getheaders():
                 if key.lower() not in _HOP_BY_HOP and not (upstream.status == 204 and key.lower() in {"content-length", "transfer-encoding"}):
@@ -842,10 +861,20 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                     chunk = upstream.read(65536)
                     if not chunk:
                         break
-                    self.wfile.write(f"{len(chunk):X}\r\n".encode("ascii"))
-                    self.wfile.write(chunk + b"\r\n")
+                    # Tee bounded bytes for usage parsing while immediately forwarding.
+                    if not tee_overflow:
+                        if len(tee) + len(chunk) <= tee_limit:
+                            tee.extend(chunk)
+                        else:
+                            tee_overflow = True
+                            tee.clear()
+                    self.wfile.write(f"{len(chunk):X}\\r\\n".encode("ascii"))
+                    self.wfile.write(chunk + b"\\r\\n")
                     self.wfile.flush()
-                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.write(b"0\\r\\n\\r\\n")
+            if tee and not tee_overflow and ("json" in content_type or "text/event-stream" in content_type):
+                usage = _usage_from_response(bytes(tee), is_sse="text/event-stream" in content_type)
+                _record_provider_usage(self.server, usage)
             with self.server.stats_lock:  # type: ignore[attr-defined]
                 self.server.stats["upstream_errors"] += int(upstream.status >= 500)  # type: ignore[attr-defined]
         except (OSError, http.client.HTTPException) as exc:
@@ -879,7 +908,14 @@ def serve(host: str | None = None, port: int | None = None) -> None:
     server = ThreadingHTTPServer((config.host, config.port), TokenSaverProxyHandler)
     server.gateway_config = config  # type: ignore[attr-defined]
     server.stats_lock = threading.Lock()  # type: ignore[attr-defined]
-    server.stats = {"requests": 0, "compressed_requests": 0, "chars_saved": 0, "upstream_errors": 0, "transform_errors": 0}  # type: ignore[attr-defined]
+    server.stats = {
+        "requests": 0, "compressed_requests": 0, "chars_saved": 0,
+        "upstream_errors": 0, "transform_errors": 0,
+        "provider_input_tokens": 0, "provider_output_tokens": 0,
+        "provider_cached_input_tokens": 0, "usage_responses": 0,
+        "estimated_system_chars": 0, "estimated_old_history_chars": 0,
+        "estimated_recent_chars": 0, "estimated_tool_output_chars": 0,
+    }  # type: ignore[attr-defined]
     print(f"TokenSaver Gateway listening on http://{config.host}:{config.port}")
     print("Health: /health | Stats: /stats | Ctrl+C to stop")
     try:
