@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from .compressor import compress_text
@@ -72,11 +74,37 @@ def main() -> int:
     serve.add_argument("--host", default=None)
     serve.add_argument("--port", type=int, default=None)
 
+    report = sub.add_parser("report", help="Show measured provider usage and estimated context categories")
+    report.add_argument("--url", default="http://127.0.0.1:8765/stats", help="Gateway stats endpoint")
+
     args = parser.parse_args()
     try:
         if args.command == "serve":
             from .proxy import serve as serve_proxy
             serve_proxy(args.host, args.port)
+            return 0
+        if args.command == "report":
+            request = urllib.request.Request(args.url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(request, timeout=5) as response:
+                stats = json.loads(response.read().decode("utf-8"))
+            print("TokenSaver usage report")
+            print("Provider usage: MEASURED from upstream response usage objects")
+            print("Context breakdown: ESTIMATED from request text; not provider tokenizer counts")
+            print("")
+            print("| Category | Characters | Rough tokens (estimated) |")
+            print("| --- | ---: | ---: |")
+            for label, key in (("System/developer", "system"), ("Old history", "old_history"),
+                               ("Recent turns", "recent_turns"), ("Tool outputs", "tool_outputs")):
+                print(f"| {label} | {int(stats.get(key + '_chars', 0)):,} | {int(stats.get('estimated_' + key + '_tokens', 0)):,} |")
+            print("")
+            print("| Provider metric (measured) | Tokens |")
+            print("| --- | ---: |")
+            print(f"| Input tokens | {int(stats.get('provider_input_tokens', 0)):,} |")
+            print(f"| Output tokens | {int(stats.get('provider_output_tokens', 0)):,} |")
+            print(f"| Cached input tokens | {int(stats.get('provider_cached_input_tokens', 0)):,} |")
+            print("")
+            print(f"Requests: {int(stats.get('requests', 0))}; compressed requests: {int(stats.get('compressed_requests', 0))}; transform errors: {int(stats.get('transform_errors', 0))}")
+            print(f"Responses with parsed provider usage: {int(stats.get('provider_usage_responses', 0))}; parse/tee skips: {int(stats.get('provider_usage_parse_errors', 0))}")
             return 0
         if args.command == "compress":
             result = compress_text(_read_input(args.file), deduplicate_lines=not args.keep_duplicates)
