@@ -85,6 +85,10 @@ def compress_text(text: str, *, deduplicate_lines: bool = True) -> CompressionRe
         if in_fence:
             output.append(line)
             continue
+        if not line.strip():
+            if output and output[-1] != "":
+                output.append("")
+            continue
         indent_len = len(line) - len(line.lstrip(" \t"))
         indent, body = line[:indent_len], line[indent_len:]
         line = indent + _SPACES.sub(" ", body.rstrip())
@@ -95,7 +99,10 @@ def compress_text(text: str, *, deduplicate_lines: bool = True) -> CompressionRe
                 continue
             seen.add(folded)
         output.append(line)
-    normalized = _BLANKS.sub("\n\n", "\n".join(output)).rstrip("\n")
+    if not in_fence:
+        while output and output[-1] == "":
+            output.pop()
+    normalized = "\n".join(output)
     return CompressionResult(
         original_chars=len(original),
         compressed_chars=len(normalized),
