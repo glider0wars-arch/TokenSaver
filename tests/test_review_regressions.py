@@ -221,5 +221,48 @@ class ReviewRegressionTests(unittest.TestCase):
         )
 
 
+    def test_chat_compaction_does_not_move_later_developer_message_to_prefix(self):
+        messages = [
+            {"role": "system", "content": "Initial stable system rules."},
+            {"role": "user", "content": "Old detail " * 100},
+            {"role": "assistant", "content": "Old response " * 100},
+            {"role": "user", "content": "More old detail " * 100},
+            {"role": "developer", "content": "Late developer rule: keep the user's format."},
+            {"role": "user", "content": "Recent request " * 100},
+            {"role": "assistant", "content": "Recent answer " * 100},
+        ]
+        compacted, stats = compact_chat_messages(
+            messages, keep_recent=3, cut_step=1, min_total_chars=1,
+            min_old_chars=1, max_summary_chars=800,
+        )
+        self.assertTrue(stats["compressed"])
+        summary_index = next(i for i, m in enumerate(compacted)
+                             if m.get("role") == "system" and "compacted earlier" in m.get("content", ""))
+        developer_index = next(i for i, m in enumerate(compacted)
+                               if m.get("role") == "developer" and "Late developer rule" in m.get("content", ""))
+        self.assertGreater(developer_index, summary_index)
+
+    def test_responses_compaction_does_not_move_later_developer_item_to_prefix(self):
+        items = [
+            {"type": "message", "role": "system", "content": "Initial stable system rules."},
+            {"type": "message", "role": "user", "content": "Old detail " * 100},
+            {"type": "message", "role": "assistant", "content": "Old response " * 100},
+            {"type": "message", "role": "user", "content": "More old detail " * 100},
+            {"type": "message", "role": "developer", "content": "Late developer rule: keep the user's format."},
+            {"type": "message", "role": "user", "content": "Recent request " * 100},
+            {"type": "message", "role": "assistant", "content": "Recent answer " * 100},
+        ]
+        compacted, stats = compact_response_input(
+            items, keep_recent=3, cut_step=1, min_total_chars=1,
+            min_old_chars=1, max_summary_chars=800,
+        )
+        self.assertTrue(stats["compressed"])
+        summary_index = next(i for i, m in enumerate(compacted)
+                             if m.get("role") == "system" and "compacted earlier" in str(m.get("content", "")))
+        developer_index = next(i for i, m in enumerate(compacted)
+                               if m.get("role") == "developer" and "Late developer rule" in str(m.get("content", "")))
+        self.assertGreater(developer_index, summary_index)
+
+
 if __name__ == "__main__":
     unittest.main()
