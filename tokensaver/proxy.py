@@ -315,6 +315,10 @@ def _compress_payload_tool_outputs(items: list[Any] | str, kind: str | dict[str,
         raise ValueError("Expected a list of request items and a supported tool-output kind.")
     if max_chars < 1:
         raise ValueError("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS must be a positive integer.")
+    # Rewriting any part of a cache-controlled prompt can invalidate the reusable
+    # prefix, so leave tool output untouched whenever explicit cache metadata exists.
+    if _contains_cache_control(items):
+        return 0
     protected_start = len(items)
     if kind == "chat":
         protected_start = next((i for i in range(len(items) - 1, -1, -1)
@@ -628,7 +632,7 @@ def transform_payload(
             stats["compressed"] = True
         return body, stats
     if path.endswith("/messages") and isinstance(body.get("messages"), list):
-        saved = _compress_payload_tool_outputs(body["messages"], "anthropic", tool_output_max_chars)
+        saved = 0 if _contains_cache_control(body.get("system")) else _compress_payload_tool_outputs(body["messages"], "anthropic", tool_output_max_chars)
         compacted, stats = compact_anthropic_messages(
             body["messages"], system=body.get("system"), keep_recent=keep_recent,
             max_summary_chars=max_summary_chars, min_old_chars=min_old_chars,
@@ -651,7 +655,7 @@ def transform_payload(
             body["system"] = summary_text
         return body, stats
     if path.endswith("/responses") and isinstance(body.get("input"), list):
-        saved = _compress_payload_tool_outputs(body["input"], "responses", tool_output_max_chars)
+        saved = 0 if _contains_cache_control(body.get("instructions")) else _compress_payload_tool_outputs(body["input"], "responses", tool_output_max_chars)
         body["input"], stats = compact_response_input(
             body["input"], keep_recent=keep_recent, max_summary_chars=max_summary_chars,
             min_old_chars=min_old_chars, min_total_chars=min_total_chars, cut_step=cut_step)
