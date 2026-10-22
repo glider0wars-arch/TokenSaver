@@ -39,8 +39,13 @@ class RollingMemory:
         turns = [dict(turn) for turn in self.recent_turns]
         evicted: list[str] = []
 
-        for category in ("GOALS", "RULES", "DECISIONS"):
+        for category in ("GOALS", "RULES", "DECISIONS", "RECENT_CONTEXT"):
             if len(sections[category]) > self.max_items_per_category:
+                if category == "RECENT_CONTEXT":
+                    raise ValueError(
+                        f"RECENT_CONTEXT has more than max_items_per_category={self.max_items_per_category}; "
+                        "this category is not silently discarded outside the documented eviction order."
+                    )
                 raise ValueError(
                     f"{category} has more than max_items_per_category={self.max_items_per_category}; "
                     "durable facts are never discarded automatically."
@@ -53,7 +58,7 @@ class RollingMemory:
             ) + sum(len(t.get("role", "")) + len(t.get("content", "")) for t in turns)
 
         # Preserve the requested eviction priority: recent turns first, then
-        # open tasks, current state, and files. RECENT_CONTEXT is last-resort.
+        # open tasks, current state, and files. Other categories are never auto-evicted.
         while turns and total() > self.max_total_chars:
             turns.pop(0)
             evicted.append("recent_turns")
@@ -82,18 +87,19 @@ class RollingMemory:
             raise ValueError(f"Unknown category {category!r}. Choose from: {', '.join(CATEGORIES)}")
         if not item:
             return False
+        old_sections = {name: list(values) for name, values in self.sections.items()}
+        old_turns = [dict(turn) for turn in self.recent_turns]
+        old_evicted = list(self.last_evicted)
         bucket = self.sections.setdefault(category, [])
         if item in bucket:
             return False
-        old_sections = {name: list(values) for name, values in self.sections.items()}
-        old_turns = [dict(turn) for turn in self.recent_turns]
         bucket.append(item)
         try:
             self._enforce_limits()
         except ValueError:
             self.sections = old_sections
             self.recent_turns = old_turns
-            self.last_evicted = []
+            self.last_evicted = old_evicted
             raise
         return item in self.sections.get(category, [])
 
@@ -111,6 +117,7 @@ class RollingMemory:
     def clear(self) -> None:
         self.sections = {name: [] for name in CATEGORIES}
         self.recent_turns = []
+        self.last_evicted = []
 
     def add_turn(self, role: str, content: str) -> None:
         role = role.strip().lower()
@@ -126,6 +133,7 @@ class RollingMemory:
         content = content[:max_turn_chars]
         old_sections = {name: list(values) for name, values in self.sections.items()}
         old_turns = [dict(turn) for turn in self.recent_turns]
+        old_evicted = list(self.last_evicted)
         self.recent_turns.append({"role": role, "content": content})
         self.recent_turns = self.recent_turns[-max(1, self.max_recent_turns):]
         try:
@@ -133,7 +141,7 @@ class RollingMemory:
         except ValueError:
             self.sections = old_sections
             self.recent_turns = old_turns
-            self.last_evicted = []
+            self.last_evicted = old_evicted
             raise
 
     def render(self, *, include_recent: bool = True) -> str:
