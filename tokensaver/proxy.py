@@ -172,7 +172,7 @@ def _message_text(message: dict[str, Any]) -> str:
 
 
 
-_ANSI_ESCAPE = re.compile(r"\\x1b(?:\\[[0-?]*[ -/]*[@-~]|\\][^\\x07]*(?:\\x07|\\x1b\\\\))")
+_ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
 _TOOL_OUTPUT_REFERENCE = "[identical tool output repeated later; see message {index}]"
 
@@ -180,8 +180,8 @@ _TOOL_OUTPUT_REFERENCE = "[identical tool output repeated later; see message {in
 def _compress_tool_output_text(text: str, max_chars: int = _DEFAULT_TOOL_OUTPUT_MAX_CHARS,
                                head_lines: int = 8, tail_lines: int = 8) -> str:
     """Conservatively shrink noisy tool output while retaining important lines."""
-    cleaned = _ANSI_ESCAPE.sub("", text).replace("\\r\\n", "\\n").replace("\\r", "\\n")
-    lines = cleaned.split("\\n")
+    cleaned = _ANSI_ESCAPE.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
+    lines = cleaned.split("\n")
     collapsed: list[str] = []
     i = 0
     while i < len(lines):
@@ -193,7 +193,7 @@ def _compress_tool_output_text(text: str, max_chars: int = _DEFAULT_TOOL_OUTPUT_
             line = f"{line} (repeated x{j - i})"
         collapsed.append(line)
         i = j
-    rendered = "\\n".join(collapsed)
+    rendered = "\n".join(collapsed)
     if len(rendered) <= max_chars:
         return rendered
     keep = set(range(min(head_lines, len(collapsed))))
@@ -214,7 +214,7 @@ def _compress_tool_output_text(text: str, max_chars: int = _DEFAULT_TOOL_OUTPUT_
             in_omitted = True
     if in_omitted:
         output.append(f"[{omitted} lines omitted]")
-    result = "\\n".join(output)
+    result = "\n".join(output)
     if len(result) <= max_chars:
         return result
     # Important lines win over the nominal cap, so errors are never silently lost.
@@ -227,7 +227,7 @@ def _compress_tool_output_text(text: str, max_chars: int = _DEFAULT_TOOL_OUTPUT_
             continue
         if sum(len(x) + 1 for x in selected) < max_chars - 24 and len(line) <= budget:
             selected.add(line)
-    return "\\n".join(line for line in output if line in selected)
+    return "\n".join(line for line in output if line in selected)
 
 
 def _tool_output_slots(items: list[Any], kind: str) -> list[tuple[int, Any, str, str]]:
@@ -274,7 +274,7 @@ def _compress_payload_tool_outputs(items: list[Any], kind: str, max_chars: int) 
     later: dict[str, int] = {}
     saved = 0
     for index, owner, key, raw_text in reversed(slots):
-        cleaned = _ANSI_ESCAPE.sub("", raw_text).replace("\\r\\n", "\\n").replace("\\r", "\\n")
+        cleaned = _ANSI_ESCAPE.sub("", raw_text).replace("\r\n", "\n").replace("\r", "\n")
         if index < protected_start:
             if cleaned in later:
                 replacement = _TOOL_OUTPUT_REFERENCE.format(index=later[cleaned] + 1)
@@ -553,10 +553,10 @@ def transform_payload(
                 stats["compressed"] = True
             return body, stats
         body["messages"] = compacted
-        summary_text = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\\n" + str(stats.pop("summary_text"))
+        summary_text = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\n" + str(stats.pop("summary_text"))
         current_system = body.get("system", "")
         if isinstance(current_system, str):
-            body["system"] = (current_system + "\\n\\n" + summary_text).strip()
+            body["system"] = (current_system + "\n\n" + summary_text).strip()
         elif isinstance(current_system, list):
             body["system"] = current_system + [{"type": "text", "text": summary_text}]
         else:
