@@ -4,6 +4,7 @@ from __future__ import annotations
 import hmac
 import http.client
 import json
+import math
 import os
 import re
 import threading
@@ -66,8 +67,12 @@ def _env_int(name: str, default: int, *, minimum: int = 0, maximum: int | None =
 def load_config() -> GatewayConfig:
     """Validate every supported environment setting with actionable errors."""
     upstream = os.getenv("TOKENSAVER_UPSTREAM_BASE_URL", "https://api.openai.com").rstrip("/")
-    parsed = urlsplit(upstream)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+    try:
+        parsed = urlsplit(upstream)
+        hostname = parsed.hostname
+    except ValueError as exc:
+        raise ValueError("TOKENSAVER_UPSTREAM_BASE_URL is not a valid URL.") from exc
+    if parsed.scheme not in {"http", "https"} or not hostname or parsed.username or parsed.password:
         raise ValueError("TOKENSAVER_UPSTREAM_BASE_URL must be an http(s) origin without embedded credentials.")
     if parsed.query or parsed.fragment:
         raise ValueError("TOKENSAVER_UPSTREAM_BASE_URL must not include a query string or fragment.")
@@ -83,12 +88,15 @@ def load_config() -> GatewayConfig:
         timeout = float(timeout_raw)
     except ValueError as exc:
         raise ValueError(f"TOKENSAVER_UPSTREAM_TIMEOUT must be a positive number; received {timeout_raw!r}.") from exc
-    if timeout <= 0:
-        raise ValueError("TOKENSAVER_UPSTREAM_TIMEOUT must be greater than zero.")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("TOKENSAVER_UPSTREAM_TIMEOUT must be a finite number greater than zero.")
     host = os.getenv("TOKENSAVER_HOST", "127.0.0.1")
     port = _env_int("TOKENSAVER_PORT", 8765, minimum=1, maximum=65535)
     allow_remote = remote_raw == "1"
     token = os.getenv("TOKENSAVER_GATEWAY_TOKEN", "")
+    upstream_key = os.getenv("TOKENSAVER_UPSTREAM_API_KEY", "")
+    if any(ch in token for ch in "\\r\\n") or any(ch in upstream_key for ch in "\\r\\n"):
+        raise ValueError("TOKENSAVER_GATEWAY_TOKEN and TOKENSAVER_UPSTREAM_API_KEY must not contain newlines.")
     if allow_remote and not token:
         raise ValueError("TOKENSAVER_GATEWAY_TOKEN is required when TOKENSAVER_ALLOW_REMOTE=1.")
     if host not in {"127.0.0.1", "localhost", "::1"} and not allow_remote:
@@ -108,7 +116,7 @@ def load_config() -> GatewayConfig:
         allow_remote=allow_remote,
         gateway_token=token,
         access_log=access_raw == "1",
-        upstream_api_key=os.getenv("TOKENSAVER_UPSTREAM_API_KEY", ""),
+        upstream_api_key=upstream_key,
     )
 
 
@@ -534,6 +542,8 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                 headers.pop("Authorization", None)
                 headers["x-api-key"] = config.upstream_api_key
         headers.pop("Host", None)
+        if config.allow_remote and headers.get("Authorization") == "Bearer " + config.gateway_token and not config.upstream_api_key:
+            headers.pop("Authorization", None)
         headers_sent = False
         try:
             conn.request(self.command, target_path, body=outgoing if self.command not in {"GET", "HEAD"} else None, headers=headers)
