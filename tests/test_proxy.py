@@ -2,8 +2,8 @@ import unittest
 from unittest.mock import patch
 
 from tokensaver.proxy import (
-    _IMPORTANT, _compress_output_text, _compress_payload_tool_outputs,
-    _usage_from_response, compact_anthropic_messages, compact_chat_messages,
+    _IMPORTANT, _compress_tool_output_text, _compress_payload_tool_outputs,
+    _parse_provider_usage, compact_anthropic_messages, compact_chat_messages,
     compact_response_input, transform_payload,
 )
 
@@ -127,7 +127,7 @@ class ProxyTests(unittest.TestCase):
                + "ValueError: exact failure\r\n"
                + "خطا: اطلاعات مهم را حفظ کن\r\n"
                + "tail marker\r\n")
-        compressed = _compress_output_text(raw, 300, head_lines=3, tail_lines=3)
+        compressed = _compress_tool_output_text(raw, max_chars=300, head_lines=3, tail_lines=3)
         self.assertNotIn("\x1b[32m", compressed)
         self.assertIn("ValueError: exact failure", compressed)
         self.assertIn("خطا: اطلاعات مهم را حفظ کن", compressed)
@@ -145,14 +145,14 @@ class ProxyTests(unittest.TestCase):
             {"role": "tool", "tool_call_id": "new-call", "content": latest_output},
         ]}
         with patch.dict("os.environ", {"TOKENSAVER_TOOL_OUTPUT_MAX_CHARS": "256"}):
-            _compress_payload_tool_outputs("/v1/chat/completions", body)
+            _compress_payload_tool_outputs(body["messages"], "chat", 256)
         self.assertLess(len(body["messages"][1]["content"]), len(old_output))
         self.assertEqual(body["messages"][4]["content"], latest_output)
 
     def test_usage_parser_handles_json_and_sse_responses(self):
-        usage = _usage_from_response(
+        usage = _parse_provider_usage(
             b'{"usage":{"prompt_tokens":100,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":30}}}',
-            is_sse=False,
+            "application/json",
         )
         self.assertEqual(usage, {
             "provider_input_tokens": 100,
@@ -161,7 +161,7 @@ class ProxyTests(unittest.TestCase):
         })
         sse = (b'data: {"type":"response.completed","response":{"usage":{"input_tokens":11,"output_tokens":4,'
                b'"input_tokens_details":{"cached_tokens":3}}}\n\n')
-        usage = _usage_from_response(sse, is_sse=True)
+        usage = _parse_provider_usage(sse, "text/event-stream")
         self.assertEqual(usage, {
             "provider_input_tokens": 11,
             "provider_output_tokens": 4,
