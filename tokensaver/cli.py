@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from .compressor import compress_text
-from .memory import CATEGORIES, RollingMemory
+from .memory import CATEGORIES, RollingMemory, build_request
 
 
 def _read_input(path: str | None) -> str:
@@ -37,6 +37,10 @@ def main() -> int:
     turn.add_argument("path")
     turn.add_argument("role", choices=["user", "assistant", "tool", "system"])
     turn.add_argument("text")
+
+    request = sub.add_parser("request", help="Build a prompt from compact memory and a new message")
+    request.add_argument("path", help="Rolling-memory JSON file")
+    request.add_argument("message", help="New user message")
 
     render = sub.add_parser("memory-render", help="Print compact memory to stdout")
     render.add_argument("path")
@@ -69,6 +73,14 @@ def main() -> int:
         memory.add_turn(args.role, args.text)
         memory.save(args.path)
         print("Recent turn stored.")
+        return 0
+    if args.command == "request":
+        memory = RollingMemory.load(args.path)
+        # Render first so the new message is not duplicated in this same prompt.
+        prompt = build_request(memory, args.message)
+        memory.add_turn("user", args.message)
+        memory.save(args.path)
+        print(prompt)
         return 0
     if args.command == "memory-render":
         print(RollingMemory.load(args.path).render(include_recent=not args.no_recent))
