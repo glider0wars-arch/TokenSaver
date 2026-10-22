@@ -1,0 +1,187 @@
+import json
+import unittest
+from unittest.mock import patch
+
+from tokensaver.compressor import compress_text
+from tokensaver.memory import RollingMemory
+from tokensaver.proxy import (
+    _content_text,
+    compact_anthropic_messages,
+    compact_chat_messages,
+    compact_response_input,
+)
+
+
+class ReviewRegressionTests(unittest.TestCase):
+    def test_compactors_fail_closed_on_non_object_chat_items(self):
+        messages = [{"role": "user", "content": "old " * 100}, "unexpected raw item", {"role": "assistant", "content": "latest " * 100}]
+        compacted, stats = compact_chat_messages(messages, keep_recent=1, cut_step=1, min_total_chars=1, min_old_chars=1)
+        self.assertEqual(compacted, messages)
+        self.assertFalse(stats["compressed"])
+
+    def test_compactors_fail_closed_on_non_object_responses_items(self):
+        items = [{"type": "message", "role": "user", "content": "old " * 100}, 7, {"type": "message", "role": "user", "content": "latest " * 100}]
+        compacted, stats = compact_response_input(items, keep_recent=1, cut_step=1, min_total_chars=1, min_old_chars=1)
+        self.assertEqual(compacted, items)
+        self.assertFalse(stats["compressed"])
+
+    def test_anthropic_compactor_does_not_drop_non_object_items(self):
+        messages = [{"role": "user", "content": "old " * 100}, None, {"role": "user", "content": "latest " * 100}]
+        compacted, stats = compact_anthropic_messages(messages, keep_recent=1, cut_step=1, min_total_chars=1, min_old_chars=1)
+        self.assertEqual(compacted, messages)
+        self.assertFalse(stats["compressed"])
+
+    def test_anthropic_after_char_count_includes_system_summary_prefix(self):
+        system = "Stable system prompt"
+        messages = [
+            {"role": "user", "content": "old context " * 100},
+            {"role": "assistant", "content": "old response " * 100},
+            {"role": "user", "content": "latest question " * 100},
+            {"role": "assistant", "content": "latest answer " * 100},
+        ]
+        compacted, stats = compact_anthropic_messages(messages, system=system, keep_recent=2, cut_step=1, min_total_chars=1, min_old_chars=1, max_summary_chars=500)
+        self.assertTrue(stats["compressed"])
+        summary = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\n" + stats["summary_text"]
+        expected_system = (system + "\n\n" + summary).strip()
+        actual_after = len(expected_system) + sum(len(f"{m.get('role', 'unknown')}: {_content_text(m.get('content', ''))}".strip()) for m in compacted)
+        self.assertEqual(stats["after_chars"], actual_after)
+    def test_chat_cut_does_not_start_with_orphan_tool_message(self):
+        messages = [
+            {"role": "user", "content": "old context " * 100},
+            {"role": "assistant", "tool_calls": [{"id": "call-1", "type": "function", "function": {"name": "x", "arguments": "{}"}}], "content": None},
+            {"role": "tool", "tool_call_id": "call-1", "content": "tool output " * 20},
+            {"role": "user", "content": "recent question " * 100},
+            {"role": "assistant", "content": "recent answer " * 100},
+        ]
+        for keep in (1, 2, 3):
+            compacted, stats = compact_chat_messages(
+                messages, keep_recent=keep, cut_step=1, min_total_chars=1,
+                min_old_chars=1, max_summary_chars=500,
+            )
+            if stats["compressed"]:
+                first_conversation = next((m for m in compacted if m.get("role") not in {"system", "developer"}), {})
+                self.assertNotEqual(first_conversation.get("role"), "tool")
+
+    def test_responses_cut_keeps_function_call_with_output(self):
+        items = [
+            {"type": "message", "role": "user", "content": "old context " * 100},
+            {"type": "function_call", "call_id": "fc-1", "name": "read", "arguments": "{}"},
+            {"type": "function_call_output", "call_id": "fc-1", "output": "tool output " * 20},
+            {"type": "message", "role": "user", "content": "recent question " * 100},
+            {"type": "message", "role": "assistant", "content": "recent answer " * 100},
+        ]
+        for keep in (1, 2, 3):
+            compacted, stats = compact_response_input(
+                items, keep_recent=keep, cut_step=1, min_total_chars=1,
+                min_old_chars=1, max_summary_chars=500,
+            )
+            if stats["compressed"]:
+                first = next((m for m in compacted if m.get("type") not in {"reasoning"}), {})
+                if first.get("type") == "function_call_output":
+                    self.fail("retained context starts with an orphan function_call_output")
+
+    def test_anthropic_cut_never_keeps_tool_result_without_its_use(self):
+        messages = [
+            {"role": "user", "content": "old context " * 100},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "tool-1", "name": "read", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tool-1", "content": "result " * 20}]},
+            {"role": "user", "content": "recent question " * 100},
+            {"role": "assistant", "content": "recent answer " * 100},
+        ]
+        for keep in (1, 2, 3):
+            compacted, stats = compact_anthropic_messages(
+                messages, keep_recent=keep, cut_step=1, min_total_chars=1,
+                min_old_chars=1, max_summary_chars=500,
+            )
+            if stats["compressed"]:
+                retained = json.dumps(compacted, ensure_ascii=False)
+                if '"tool_use_id": "tool-1"' in retained:
+                    self.assertIn('"type": "tool_use"', retained)
+
+    def test_content_text_omits_base64_and_image_payloads(self):
+        content = [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "A" * 10000}},
+            {"type": "text", "text": "keep this sentence"},
+        ]
+        result = _content_text(content)
+        self.assertLess(len(result), 200)
+        self.assertIn("[image omitted]", result)
+        self.assertIn("keep this sentence", result)
+
+    def test_compressor_only_deduplicates_adjacent_safe_prose_lines(self):
+        prose = "A sufficiently long repeated prose line that is safe.\nA sufficiently long repeated prose line that is safe."
+        self.assertEqual(compress_text(prose).text.count("A sufficiently long"), 1)
+        nonadjacent = "A sufficiently long repeated prose line that is safe.\nOther content.\nA sufficiently long repeated prose line that is safe."
+        self.assertEqual(compress_text(nonadjacent).text.count("A sufficiently long"), 2)
+        code_like = "if value is not None:    return value\nif value is not None:    return value"
+        self.assertEqual(compress_text(code_like).text.count("if value"), 2)
+
+    def test_memory_add_failure_is_atomic_and_preserves_durable_categories(self):
+        memory = RollingMemory(max_total_chars=70)
+        memory.add("GOALS", "goal that must remain")
+        memory.add("RULES", "rule that must remain")
+        before = memory.to_dict()
+        with self.assertRaises(ValueError):
+            memory.add("DECISIONS", "x" * 500)
+        self.assertEqual(memory.to_dict(), before)
+        self.assertIn("goal that must remain", memory.sections["GOALS"])
+        self.assertIn("rule that must remain", memory.sections["RULES"])
+
+    def test_memory_turn_truncates_instead_of_failing(self):
+        memory = RollingMemory(max_total_chars=10000)
+        with patch.dict("os.environ", {"TOKENSAVER_MAX_TURN_CHARS": "2000"}):
+            memory.add_turn("user", "x" * 5000)
+        self.assertLessEqual(len(memory.recent_turns[-1]["content"]), 2000)
+
+
+    def test_anthropic_cut_landing_on_tool_use_moves_past_complete_cycle(self):
+        messages = [
+            {"role": "user", "content": "old context " * 100},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "tool-1", "name": "read", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tool-1", "content": "result " * 20}]},
+            {"role": "user", "content": "recent question " * 100},
+            {"role": "assistant", "content": "recent answer " * 100},
+        ]
+        compacted, stats = compact_anthropic_messages(
+            messages, keep_recent=4, cut_step=1, min_total_chars=1,
+            min_old_chars=1, max_summary_chars=500,
+        )
+        self.assertTrue(stats["compressed"])
+        retained = json.dumps(compacted, ensure_ascii=False)
+        self.assertNotIn('"tool_use_id": "tool-1"', retained)
+        self.assertNotIn('"id": "tool-1"', retained)
+        self.assertEqual(compacted[0]["role"], "user")
+
+    def test_chat_cut_with_consecutive_tool_replies_moves_to_owner(self):
+        messages = [
+            {"role": "user", "content": "old context " * 100},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "call-1", "type": "function", "function": {"name": "one", "arguments": "{}"}},
+                {"id": "call-2", "type": "function", "function": {"name": "two", "arguments": "{}"}},
+            ]},
+            {"role": "tool", "tool_call_id": "call-1", "content": "first output " * 20},
+            {"role": "tool", "tool_call_id": "call-2", "content": "second output " * 20},
+            {"role": "user", "content": "recent question " * 100},
+            {"role": "assistant", "content": "recent answer " * 100},
+        ]
+        for keep in (2, 3, 4, 5):
+            compacted, stats = compact_chat_messages(
+                messages, keep_recent=keep, cut_step=1, min_total_chars=1,
+                min_old_chars=1, max_summary_chars=500,
+            )
+            if stats["compressed"]:
+                first = next((m for m in compacted if m.get("role") not in {"system", "developer"}), {})
+                self.assertNotEqual(first.get("role"), "tool")
+
+    def test_memory_eviction_prefers_turns_before_open_tasks(self):
+        memory = RollingMemory(max_total_chars=100, max_recent_turns=5)
+        memory.add("OPEN_TASKS", "task that should remain if turns can be evicted")
+        memory.add_turn("user", "x" * 30)
+        memory.add_turn("assistant", "y" * 30)
+        memory.add_turn("user", "z" * 30)
+        self.assertTrue(memory.recent_turns)
+        self.assertIn("task that should remain if turns can be evicted", memory.sections["OPEN_TASKS"])
+
+
+if __name__ == "__main__":
+    unittest.main()
