@@ -56,6 +56,21 @@ For a full walkthrough, see `examples/workflow.md`.
 
 **Important:** this is a working local memory utility, not yet an automatic plugin or network proxy for Claude Code, Codex, or Grok. It cannot replace hidden provider-managed history unless integrated with that provider's request pipeline. Compression is conservative and deterministic; it does not autonomously understand or summarize meaning. Keep critical constraints and decisions explicitly stored, and keep a separate transcript if you need a full audit trail.
 
+## Local API Gateway (v0.3)
+
+TokenSaver now includes a local proxy that compacts older conversation history **before** forwarding supported API requests. It supports OpenAI-compatible `/v1/chat/completions`, simple/list-based `/v1/responses`, and Anthropic `/v1/messages`. It preserves system/developer instructions, keeps recent turns, favors important lines when building the old-context note, and passes through unrelated request shapes.
+
+Run it with Python 3.10+:
+
+    python -m pip install -e .
+    TOKENSAVER_UPSTREAM_BASE_URL=https://api.openai.com python -m tokensaver.cli serve
+
+By default, it listens only on `127.0.0.1:8765`. Check `http://127.0.0.1:8765/health` and `/stats`. Set the upstream origin to `https://api.x.ai` for Grok API or `https://api.anthropic.com` for Anthropic API. Configuration and integration examples are in `docs/gateway.md` and `.env.example`.
+
+The gateway does not call a second model to summarize old messages, so it adds no extra model call for compression. Its extractive compaction is conservative, but can still lose nuance; check the results with your own tasks. Token counts are rough estimates, not provider-reported measurements.
+
+**Billing and access:** the gateway only affects requests routed through it. API-key traffic is billed by the upstream API provider. It does not intercept hidden traffic from the Claude, ChatGPT, Grok websites/apps, and it does not convert subscription usage into API credits or bypass quotas. The gateway binds locally by default; do not expose it publicly without authentication and TLS.
+
 ## Measuring results
 
 Token counts differ by provider and tokenizer. Compare actual usage metadata when available. Otherwise, report that savings are estimated rather than measured. Input, output, cached, and reasoning tokens may be counted differently by each provider.
