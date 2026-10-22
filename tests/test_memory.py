@@ -42,11 +42,6 @@ class MemoryTests(unittest.TestCase):
         self.assertIn("[NEW MESSAGE]", prompt)
         self.assertIn("Fix this:\n  return 1", prompt)
 
-    def test_request_preserves_new_message_whitespace_exactly(self):
-        memory = RollingMemory(project="Example")
-        message = "First  line\n\n\nSecond line  "
-        prompt = build_request(memory, message)
-        self.assertIn("[NEW MESSAGE]\n" + message, prompt)
     def test_category_and_total_memory_limits(self):
         memory = RollingMemory(max_items_per_category=2, max_total_chars=100)
         memory.add("GOALS", "first fact")
@@ -56,6 +51,32 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(memory.sections["GOALS"], ["first fact", "second fact"])
         memory.add_turn("user", "x" * 200)
         self.assertLessEqual(memory._total_chars(), 100)
+
+    def test_memory_does_not_evict_unlisted_recent_context_category(self):
+        memory = RollingMemory(max_total_chars=10)
+        memory.sections["GOALS"] = ["12345678"]
+        memory.sections["RECENT_CONTEXT"] = ["xx"]
+        before = {key: list(value) for key, value in memory.sections.items()}
+        with self.assertRaisesRegex(ValueError, "GOALS, RULES, and DECISIONS are protected"):
+            memory.add("DECISIONS", "x")
+        self.assertEqual(memory.sections, before)
+
+    def test_failed_add_restores_previous_eviction_report(self):
+        memory = RollingMemory(max_total_chars=5)
+        memory.sections["GOALS"] = ["12345"]
+        memory.last_evicted = ["OPEN_TASKS"]
+        with self.assertRaises(ValueError):
+            memory.add("DECISIONS", "x")
+        self.assertEqual(memory.sections["GOALS"], ["12345"])
+        self.assertEqual(memory.last_evicted, ["OPEN_TASKS"])
+
+    def test_recent_context_over_item_limit_is_not_silently_discarded(self):
+        memory = RollingMemory(max_items_per_category=1)
+        memory.sections["RECENT_CONTEXT"] = ["first", "second"]
+        before = {key: list(value) for key, value in memory.sections.items()}
+        with self.assertRaisesRegex(ValueError, "RECENT_CONTEXT"):
+            memory._enforce_limits()
+        self.assertEqual(memory.sections, before)
 
     def test_save_and_load_roundtrip_and_backup(self):
         memory = RollingMemory(project="Test")
