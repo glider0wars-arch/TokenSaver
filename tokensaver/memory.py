@@ -32,7 +32,7 @@ class RollingMemory:
         )
 
     def _enforce_limits(self) -> list[str]:
-        """Apply bounds transactionally; durable facts are never silently evicted."""
+        """Apply bounds transactionally without discarding durable facts."""
         if self.max_items_per_category < 1 or self.max_total_chars < 1:
             raise ValueError("Memory limits must be positive integers.")
         sections = {name: list(self.sections.get(name, [])) for name in CATEGORIES}
@@ -45,11 +45,6 @@ class RollingMemory:
                     f"{category} has more than max_items_per_category={self.max_items_per_category}; "
                     "durable facts are never discarded automatically."
                 )
-        for category in ("OPEN_TASKS", "CURRENT_STATE", "FILES", "RECENT_CONTEXT"):
-            while len(sections[category]) > self.max_items_per_category:
-                sections[category].pop(0)
-                evicted.append(category)
-
         turns = turns[-max(1, self.max_recent_turns):]
 
         def total() -> int:
@@ -57,11 +52,16 @@ class RollingMemory:
                 len(item) for values in sections.values() for item in values
             ) + sum(len(t.get("role", "")) + len(t.get("content", "")) for t in turns)
 
+        # Preserve the requested eviction priority: recent turns first, then
+        # open tasks, current state, and files. RECENT_CONTEXT is last-resort.
         while turns and total() > self.max_total_chars:
             turns.pop(0)
             evicted.append("recent_turns")
         for category in ("OPEN_TASKS", "CURRENT_STATE", "FILES", "RECENT_CONTEXT"):
-            while sections[category] and total() > self.max_total_chars:
+            while sections[category] and (
+                total() > self.max_total_chars
+                or len(sections[category]) > self.max_items_per_category
+            ):
                 sections[category].pop(0)
                 evicted.append(category)
         if total() > self.max_total_chars:
