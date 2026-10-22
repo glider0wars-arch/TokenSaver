@@ -45,8 +45,9 @@ class MemoryTests(unittest.TestCase):
         memory = RollingMemory(max_items_per_category=2, max_total_chars=100)
         memory.add("GOALS", "first fact")
         memory.add("GOALS", "second fact")
-        memory.add("GOALS", "third fact")
-        self.assertEqual(memory.sections["GOALS"], ["second fact", "third fact"])
+        with self.assertRaisesRegex(ValueError, "durable facts are never discarded"):
+            memory.add("GOALS", "third fact")
+        self.assertEqual(memory.sections["GOALS"], ["first fact", "second fact"])
         memory.add_turn("user", "x" * 200)
         self.assertLessEqual(memory._total_chars(), 100)
 
