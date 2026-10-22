@@ -972,7 +972,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                             min_old_chars=config.min_old_chars,
                             min_total_chars=config.min_total_chars,
                             cut_step=config.cut_step,
-                            tool_output_max_chars=config.tool_output_max_chars,
+                            tool_output_max_chars=getattr(config, "tool_output_max_chars", 4000),
                         )
                         outgoing = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             except Exception:
@@ -1017,7 +1017,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             self.end_headers()
             headers_sent = True
             if has_body:
-                tee_limit = config.usage_tee_max_bytes
+                tee_limit = getattr(config, "usage_tee_max_bytes", 1_000_000)
                 tee = bytearray()
                 content_type = upstream.getheader("Content-Type", "")
                 while True:
