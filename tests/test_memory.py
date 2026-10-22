@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from tokensaver.memory import RollingMemory
+from tokensaver.memory import RollingMemory, build_request
 
 
 class MemoryTests(unittest.TestCase):
@@ -19,6 +19,15 @@ class MemoryTests(unittest.TestCase):
         rendered = memory.render()
         self.assertNotIn("one", rendered)
         self.assertIn("three", rendered)
+
+    def test_request_combines_compact_memory_and_new_message(self):
+        memory = RollingMemory(project="Example")
+        memory.add("GOALS", "Build a game")
+        prompt = build_request(memory, "Add diplomacy")
+        self.assertIn("[COMPRESSED MEMORY]", prompt)
+        self.assertIn("Build a game", prompt)
+        self.assertIn("[NEW MESSAGE]", prompt)
+        self.assertIn("Add diplomacy", prompt)
 
     def test_save_and_load_roundtrip(self):
         memory = RollingMemory(project="Test")
