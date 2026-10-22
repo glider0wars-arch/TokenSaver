@@ -82,8 +82,8 @@ class GatewaySecurityTests(unittest.TestCase):
         })
         response = self.request(
             server,
-            "POST /v1/chat/completions HTTP/1.1\\r\\nHost: localhost\\r\\n"
-            "Transfer-Encoding: chunked\\r\\nConnection: close\\r\\n\\r\\n0\\r\\n\\r\\n",
+            "POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\n"
+            "Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n0\r\n\r\n",
         )
         self.assertIn("400", response)
         self.assertIn("Transfer-Encoding", response)
