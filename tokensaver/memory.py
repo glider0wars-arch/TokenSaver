@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .compressor import compress_text
+
 CATEGORIES = ("GOALS", "RULES", "DECISIONS", "CURRENT_STATE", "FILES", "OPEN_TASKS", "RECENT_CONTEXT")
 
 
@@ -85,3 +87,19 @@ class RollingMemory:
             "recent_turns": self.recent_turns[-max(1, self.max_recent_turns):],
             "max_recent_turns": self.max_recent_turns,
         }
+
+
+
+def build_request(memory: RollingMemory, new_message: str) -> str:
+    """Build the next prompt from compact memory and one new user message.
+
+    The current message is deliberately not added to memory until after this
+    prompt is rendered, avoiding duplicate inclusion in the same request.
+    """
+    sections = memory.render(include_recent=True)
+    message = compress_text(new_message, deduplicate_lines=False).text
+    parts = []
+    if sections:
+        parts.append("[COMPRESSED MEMORY]\\n" + sections)
+    parts.append("[NEW MESSAGE]\\n" + message)
+    return "\\n\\n".join(parts)
