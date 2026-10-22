@@ -1,147 +1,83 @@
 {
-  "name": "long-chat",
+  "name": "realistic-maintainer-chat",
   "path": "/v1/chat/completions",
   "payload": {
     "model": "benchmark-model",
     "messages": [
       {
         "role": "system",
-        "content": "You are a helpful assistant. Preserve user preferences and decisions across a long chat."
+        "content": "Assist with maintaining a Python API gateway. Preserve concrete requirements and failures."
       },
       {
         "role": "user",
-        "content": "Decision: the project will use a small local-first architecture. Constraint: do not add paid services without asking first."
+        "content": "For the desktop coding helper, keep Python 3.10 compatibility and avoid runtime dependencies."
       },
       {
         "role": "assistant",
-        "content": "I will keep the architecture local-first and explain trade-offs before recommending services."
+        "content": "The proxy should remain local by default and should never log API credentials."
       },
       {
         "role": "user",
-        "content": "Conversation turn 1: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
+        "content": "The Windows CI job failed once because a test assumed POSIX path separators. Use pathlib in the test."
       },
       {
         "role": "assistant",
-        "content": "Response 1: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
+        "content": "I will normalize the path assertion without changing production path handling."
       },
       {
         "role": "user",
-        "content": "Conversation turn 2: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
+        "content": "We saw duplicate output references replace the literal response 'ok'. That makes the conversation less useful, so short outputs must stay literal."
       },
       {
         "role": "assistant",
-        "content": "Response 2: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
+        "content": "Short duplicate outputs will remain unchanged; references are only useful when they actually reduce context."
       },
       {
         "role": "user",
-        "content": "Conversation turn 3: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
+        "content": "The benchmark must contain realistic grep, pytest, and git diff output. Don't use generic phrases as needles."
       },
       {
         "role": "assistant",
-        "content": "Response 3: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
+        "content": "I'll test exact error lines and unique user constraints, and the report will be generated from the checked-in fixtures."
       },
       {
         "role": "user",
-        "content": "Conversation turn 4: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
+        "content": "The old cache-aware estimate says compaction can increase cost for mixed-language requests. Keep that caveat visible."
       },
       {
         "role": "assistant",
-        "content": "Response 4: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
+        "content": "The cost table is illustrative only; actual provider usage and cache creation costs need separate measurement."
       },
       {
         "role": "user",
-        "content": "Conversation turn 5: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
+        "content": "No secrets in logs. Never print Authorization, x-api-key, or the gateway token."
       },
       {
         "role": "assistant",
-        "content": "Response 5: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
+        "content": "The regression suite should assert that credentials are removed before forwarding and are absent from errors."
       },
       {
         "role": "user",
-        "content": "Conversation turn 6: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
+        "content": "The stream parser lost usage metadata when a response crossed one megabyte. Test a usage event at the end of a larger stream."
       },
       {
         "role": "assistant",
-        "content": "Response 6: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
+        "content": "The tee will keep a bounded rolling tail and still forward every chunk immediately."
       },
       {
         "role": "user",
-        "content": "Conversation turn 7: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
-      },
-      {
-        "role": "assistant",
-        "content": "Response 7: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
-      },
-      {
-        "role": "user",
-        "content": "Conversation turn 8: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
-      },
-      {
-        "role": "assistant",
-        "content": "Response 8: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
-      },
-      {
-        "role": "user",
-        "content": "Conversation turn 9: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
-      },
-      {
-        "role": "assistant",
-        "content": "Response 9: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
-      },
-      {
-        "role": "user",
-        "content": "Conversation turn 10: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
-      },
-      {
-        "role": "assistant",
-        "content": "Response 10: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
-      },
-      {
-        "role": "user",
-        "content": "Conversation turn 11: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
-      },
-      {
-        "role": "assistant",
-        "content": "Response 11: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
-      },
-      {
-        "role": "user",
-        "content": "Conversation turn 12: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
-      },
-      {
-        "role": "assistant",
-        "content": "Response 12: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
-      },
-      {
-        "role": "user",
-        "content": "Conversation turn 13: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
-      },
-      {
-        "role": "assistant",
-        "content": "Response 13: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
-      },
-      {
-        "role": "user",
-        "content": "Conversation turn 14: We discussed planning, reliability, and how to keep the implementation maintainable. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. Additional context about the project, its users, edge cases, and expected behavior. "
-      },
-      {
-        "role": "assistant",
-        "content": "Response 14: The current approach remains consistent with the earlier decision. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. Here are the relevant considerations, possible risks, and verification steps. "
-      },
-      {
-        "role": "user",
-        "content": "Current request: summarize the plan, preserving the exact decision and constraint."
-      },
-      {
-        "role": "assistant",
-        "content": "I will keep the plan concise while preserving durable decisions."
+        "content": "For release notes, mention MIT licensing and the actual benchmark output, not the previous hard-coded numbers."
       }
     ]
   },
   "needles": [
-    "Decision: the project will use a small local-first architecture",
-    "Constraint: do not add paid services without asking first",
-    "Current request: summarize the plan",
-    "durable decisions"
+    "Python 3.10 compatibility",
+    "POSIX path separators",
+    "Short duplicate outputs will remain unchanged",
+    "Don't use generic phrases as needles",
+    "actual provider usage and cache creation costs",
+    "Never print Authorization, x-api-key, or the gateway token",
+    "usage event at the end of a larger stream",
+    "mention MIT licensing"
   ]
 }
