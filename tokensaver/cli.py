@@ -102,6 +102,7 @@ def main() -> int:
             print(f"| Input tokens | {int(stats.get('provider_input_tokens', 0)):,} |")
             print(f"| Output tokens | {int(stats.get('provider_output_tokens', 0)):,} |")
             print(f"| Cached input tokens | {int(stats.get('provider_cached_input_tokens', 0)):,} |")
+            print(f"| Cache-creation input tokens | {int(stats.get('provider_cache_creation_input_tokens', 0)):,} |")
             print("")
             print(f"Requests: {int(stats.get('requests', 0))}; compressed requests: {int(stats.get('compressed_requests', 0))}; transform errors: {int(stats.get('transform_errors', 0))}")
             print(f"Responses with parsed provider usage: {int(stats.get('provider_usage_responses', 0))}; parse/tee skips: {int(stats.get('provider_usage_parse_errors', 0))}")
