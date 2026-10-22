@@ -1,10 +1,10 @@
-# TokenSaver AI
+# Toknix AI
 
 **Spend context carefully. Keep the important bits.**
 
-TokenSaver is a small, provider-neutral prompt and context optimization kit for Claude Code, OpenAI Codex, and Grok. It helps reduce unnecessary input and output tokens by keeping requests focused, summarizing old context, inspecting only relevant files, and asking for concise results.
+Toknix is a small, provider-neutral prompt and context optimization kit for Claude Code, OpenAI Codex, and Grok. It helps reduce unnecessary input and output tokens by keeping requests focused, summarizing old context, inspecting only relevant files, and asking for concise results.
 
-> TokenSaver does not bypass provider quotas, rate limits, or usage windows. Compression can help, but it cannot guarantee that a limit will not be reached.
+> Toknix does not bypass provider quotas, rate limits, or usage windows. Compression can help, but it cannot guarantee that a limit will not be reached.
 
 ## What is included
 
@@ -34,7 +34,7 @@ TokenSaver is a small, provider-neutral prompt and context optimization kit for 
 
 ## Rolling compressed memory (new in v0.2)
 
-The Python package now includes a local rolling-memory store and a request builder. It keeps durable facts in sections such as goals, rules, decisions, current state, files, and open tasks, plus a bounded window of recent turns. Before a new request, TokenSaver renders that compact memory together with the new message. It then records the user message for future context.
+The Python package now includes a local rolling-memory store and a request builder. It keeps durable facts in sections such as goals, rules, decisions, current state, files, and open tasks, plus a bounded window of recent turns. Before a new request, Toknix renders that compact memory together with the new message. It then records the user message for future context.
 
 Install locally (Python 3.10+):
 
@@ -58,7 +58,7 @@ For a full walkthrough, see `examples/workflow.md`.
 
 ## Local API Gateway (v0.3)
 
-TokenSaver now includes a local proxy that compacts older conversation history **before** forwarding supported API requests. It supports OpenAI-compatible `/v1/chat/completions`, simple/list-based `/v1/responses`, and Anthropic `/v1/messages`. It preserves system/developer instructions, keeps recent turns, favors important lines when building the old-context note, and passes through unrelated request shapes.
+Toknix now includes a local proxy that compacts older conversation history **before** forwarding supported API requests. It supports OpenAI-compatible `/v1/chat/completions`, simple/list-based `/v1/responses`, and Anthropic `/v1/messages`. It preserves system/developer instructions, keeps recent turns, favors important lines when building the old-context note, and passes through unrelated request shapes.
 
 Run it with Python 3.10+:
 
@@ -86,14 +86,14 @@ The benchmark table is generated from the current checked-in fixtures by `python
 
 ## Lessons from related tools and provider docs
 
-- **Keep the reusable prefix stable.** [OpenAI's prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching) explains that rewriting earlier context can invalidate cache reuse. TokenSaver therefore avoids compaction when explicit cache-control markers are present and reports cache reads separately from estimated savings.
+- **Keep the reusable prefix stable.** [OpenAI's prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching) explains that rewriting earlier context can invalidate cache reuse. Toknix therefore avoids compaction when explicit cache-control markers are present and reports cache reads separately from estimated savings.
 - **Track reads and writes, not just total input.** [Anthropic's caching guide](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) separates uncached input, cache reads, and cache creation. The gateway now normalizes those values for JSON and streaming responses, while clearly labeling them as provider-reported usage.
-- **Compression quality needs more than a token count.** [Microsoft's LLMLingua research](https://www.microsoft.com/en-us/research/project/llmlingua/llmlingua/) explores model-based token-level compression and task-level evaluations. TokenSaver deliberately keeps a dependency-free, readable, conservative approach, but its needle-retention benchmark is only a regression guard. A future quality claim needs paired answer-quality evaluations against an uncompressed baseline.
+- **Compression quality needs more than a token count.** [Microsoft's LLMLingua research](https://www.microsoft.com/en-us/research/project/llmlingua/llmlingua/) explores model-based token-level compression and task-level evaluations. Toknix deliberately keeps a dependency-free, readable, conservative approach, but its needle-retention benchmark is only a regression guard. A future quality claim needs paired answer-quality evaluations against an uncompressed baseline.
 
 
 ## When this does NOT help
 
-- **Subscription apps:** TokenSaver's local API gateway only sees requests routed through it. It cannot compact hidden conversation history inside the official ChatGPT or Claude apps.
+- **Subscription apps:** Toknix's local API gateway only sees requests routed through it. It cannot compact hidden conversation history inside the official ChatGPT or Claude apps.
 - **Tools with built-in compaction:** Claude Code and other agent tools may already summarize old context. An extra compaction layer can duplicate work or remove useful detail.
 - **Cache trade-offs:** Changing an old prompt prefix may reduce cache hits. Fewer input tokens do not guarantee a lower bill; compare the benchmark's cache-aware estimate with provider-reported usage and actual pricing.
 - **Quality-sensitive work:** Extractive compaction can omit facts that are not recognized as important. Keep a transcript for auditability and validate answer quality on representative tasks.
