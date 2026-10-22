@@ -105,7 +105,7 @@ def main() -> int:
             print(f"| Cache-creation input tokens | {int(stats.get('provider_cache_creation_input_tokens', 0)):,} |")
             print("")
             print(f"Requests: {int(stats.get('requests', 0))}; compressed requests: {int(stats.get('compressed_requests', 0))}; transform errors: {int(stats.get('transform_errors', 0))}")
-            print(f"Responses with parsed provider usage: {int(stats.get('provider_usage_responses', 0))}; parse/tee skips: {int(stats.get('provider_usage_parse_errors', 0))}")
+            print(f"Responses with parsed provider usage: {int(stats.get('provider_usage_responses', 0))}; parse failures: {int(stats.get('provider_usage_parse_errors', 0))}; oversized usage bodies skipped: {int(stats.get('provider_usage_skipped_oversize', 0))}")
             return 0
         if args.command == "compress":
             result = compress_text(_read_input(args.file), deduplicate_lines=not args.keep_duplicates)
