@@ -228,8 +228,15 @@ def _compress_tool_output_text(text: str, max_chars: int = _DEFAULT_TOOL_OUTPUT_
         # Important facts outrank the size target; never silently discard them.
         return "\n".join(line for i, line in enumerate(collapsed) if i in important)
     priority = list(range(min(head_lines, len(collapsed))))
-    priority.extend(i for i in range(max(0, len(collapsed) - tail_lines), len(collapsed)) if i not in priority)
-    priority.extend(i for i in range(len(collapsed)) if i not in important and i not in priority)
+    priority_seen = set(priority)
+    for index in range(max(0, len(collapsed) - tail_lines), len(collapsed)):
+        if index not in priority_seen:
+            priority.append(index)
+            priority_seen.add(index)
+    for index in range(len(collapsed)):
+        if index not in important and index not in priority_seen:
+            priority.append(index)
+            priority_seen.add(index)
     keep = set(important)
     # Conservative incremental budget estimate keeps candidate selection O(n).
     # Render once after selection rather than re-rendering the entire log per line.
