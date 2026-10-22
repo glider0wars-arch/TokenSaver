@@ -150,7 +150,7 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(body["messages"][4]["content"], latest_output)
 
     def test_tool_output_compression_respects_cap_when_important_lines_fit(self):
-        lines = [f"ordinary line {i:03d} with padding" for i in range(30)]
+        lines = [f"ordinary entry {i:03d} with padding" for i in range(30)]
         lines[10] = "ERROR: important one"
         lines[20] = "Traceback: important two"
         compressed = _compress_tool_output_text("\\n".join(lines), max_chars=100, head_lines=2, tail_lines=2)
