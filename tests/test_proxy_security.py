@@ -118,6 +118,22 @@ class GatewaySecurityTests(unittest.TestCase):
                 load_config()
 
 
+    def test_remote_http_upstream_with_api_key_is_rejected(self):
+        with patch.dict(os.environ, {
+            "TOKENSAVER_UPSTREAM_BASE_URL": "http://api.example.com",
+            "TOKENSAVER_UPSTREAM_API_KEY": "secret-test-key",
+        }, clear=True):
+            with self.assertRaisesRegex(ValueError, "HTTPS"):
+                load_config()
+
+    def test_loopback_http_upstream_with_api_key_is_allowed_for_local_testing(self):
+        with patch.dict(os.environ, {
+            "TOKENSAVER_UPSTREAM_BASE_URL": "http://127.0.0.1:9999",
+            "TOKENSAVER_UPSTREAM_API_KEY": "secret-test-key",
+        }, clear=True):
+            config = load_config()
+            self.assertEqual(config.upstream_base_url, "http://127.0.0.1:9999")
+
     def test_remote_mode_without_auth_token_is_rejected_at_startup(self):
         with patch.dict(os.environ, {
             "TOKENSAVER_ALLOW_REMOTE": "1",
