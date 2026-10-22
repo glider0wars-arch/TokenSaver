@@ -216,11 +216,31 @@ class ProxyTests(unittest.TestCase):
             "cache_creation_input": 0,
         })
 
-    def test_important_regex_does_not_promote_generic_modal_words_or_slashes(self):
-        for line in ("We must update this later.", "We should look at this.", "باید این کار را انجام بدهیم", "The path is /tmp/cache"):
+    def test_important_regex_does_not_promote_generic_words_or_filenames(self):
+        for line in ("We must update this later.", "We should look at this.", "باید این کار را انجام بدهیم", "The path is /tmp/cache", "Changed files: app.py, tests/test_proxy.py"):
             self.assertIsNone(_IMPORTANT.search(line), line)
-        for line in ("Error: request failed", "Decision: preserve cached prefix", "فایل app.py خراب است", "tool_use id=abc"):
+        for line in ("Error: request failed", "Decision: preserve cached prefix", "Error in app.py", "tool_use id=abc", "TOKENSAVER_USAGE_TEE_MAX_BYTES=1048576"):
             self.assertIsNotNone(_IMPORTANT.search(line), line)
+
+    def test_tool_output_compression_skips_entire_cache_marked_payload(self):
+        body = {"model": "test", "messages": [
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "call-1", "type": "function", "function": {"name": "grep", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "call-1", "content": "INFO: repeated output\\n" * 500,
+             "cache_control": {"type": "ephemeral"}},
+        ]}
+        transformed, stats = transform_payload("/v1/chat/completions", body, min_total_chars=1, min_old_chars=1)
+        self.assertEqual(transformed, body)
+        self.assertFalse(stats["compressed"])
+
+    def test_short_duplicate_tool_output_is_not_replaced_by_long_reference(self):
+        messages = [
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "call-1", "type": "function", "function": {"name": "run", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "call-1", "content": "ok"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "call-2", "type": "function", "function": {"name": "run", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "call-2", "content": "ok"},
+        ]
+        _compress_payload_tool_outputs(messages, "chat", 4000)
+        self.assertEqual(messages[1]["content"], "ok")
 
 
 if __name__ == "__main__":
