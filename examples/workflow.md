@@ -1,6 +1,6 @@
 # Rolling memory workflow
 
-TokenSaver stores project facts locally and renders a compact handoff for the next request. This helps only if you send the compact prompt instead of the full old transcript.
+Toknix stores project facts locally and renders a compact handoff for the next request. This helps only if you send the compact prompt instead of the full old transcript.
 
 ## Example
 
