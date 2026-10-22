@@ -29,6 +29,32 @@ class BenchmarkTests(unittest.TestCase):
         self.assertIsNone(usage)
         urlopen.assert_not_called()
 
+    def test_live_usage_counts_anthropic_cache_reads_and_writes(self):
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return (b'{"usage":{"input_tokens":10,"output_tokens":2,'
+                        b'"cache_read_input_tokens":3,"cache_creation":{'
+                        b'"ephemeral_5m_input_tokens":4,"ephemeral_1h_input_tokens":5}}}')
+
+        with patch("benchmarks.run.urllib.request.urlopen", return_value=FakeResponse()):
+            usage = _live_usage(
+                {"model": "test"},
+                url="https://api.example.com/v1/messages",
+                key="test-key",
+            )
+        self.assertEqual(usage, {
+            "input": 22,
+            "output": 2,
+            "cached_input": 3,
+            "cache_creation_input": 9,
+        })
+
     def test_live_mode_handles_malformed_provider_usage(self):
         class FakeResponse:
             def __enter__(self):
