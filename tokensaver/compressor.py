@@ -59,20 +59,32 @@ def estimate_tokens(text: str) -> int:
     return max(1, math.ceil(weight))
 
 
-def compress_text(text: str, *, deduplicate_lines: bool = True) -> CompressionResult:
-    """Collapse excess whitespace outside fenced code and preserve indentation.
+def _looks_like_code(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    return bool(re.match(
+        r"^(?:[#@]|//|/\\*|\\*|\\}|\\]|\\)|(?:async\\s+)?(?:def|class|return|yield|import|from|if|elif|else|for|while|try|except|finally|with|const|let|var|function|export|public|private|SELECT|INSERT|UPDATE|DELETE)\\b)|"
+        r"(?:=>|->|::|:=|==|!=|<=|>=|&&|\\|\\||[{}\\[\\]();=<>])",
+        stripped,
+        re.IGNORECASE,
+    ))
 
-    Repeated lines are removed only outside fences, and only when their stripped
-    text is at least 20 characters long. Short repeated code-like lines survive.
+
+def compress_text(text: str, *, deduplicate_lines: bool = True) -> CompressionResult:
+    """Conservatively normalize prose while preserving code-like formatting.
+
+    Only adjacent, identical, non-indented prose lines are deduplicated. Indented
+    and code-looking lines are left byte-for-byte unchanged outside line endings.
+    Fenced code and blank-line structure inside fences are preserved.
     """
     original = text
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = text.replace("\\r\\n", "\\n").replace("\\r", "\\n")
     output: list[str] = []
     in_fence = False
     fence_char = ""
     fence_len = 0
-    seen: set[str] = set()
-    for line in normalized.split("\n"):
+    for line in normalized.split("\\n"):
         match = _FENCE.match(line)
         if match:
             marker = match.group(1)
@@ -89,24 +101,21 @@ def compress_text(text: str, *, deduplicate_lines: bool = True) -> CompressionRe
             if output and output[-1] != "":
                 output.append("")
             continue
-        indent_len = len(line) - len(line.lstrip(" \t"))
-        indent, body = line[:indent_len], line[indent_len:]
-        line = indent + _SPACES.sub(" ", body.rstrip())
-        key = line.strip()
-        if deduplicate_lines and len(key) >= 20:
-            folded = key.casefold()
-            if folded in seen:
-                continue
-            seen.add(folded)
+        indented = line.startswith((" ", "\\t"))
+        code_like = _looks_like_code(line)
+        if not indented and not code_like:
+            line = _SPACES.sub(" ", line.rstrip())
+        if deduplicate_lines and not indented and not code_like and output and output[-1] == line:
+            continue
         output.append(line)
     if not in_fence:
         while output and output[-1] == "":
             output.pop()
-    normalized = "\n".join(output)
+    result_text = "\\n".join(output)
     return CompressionResult(
         original_chars=len(original),
-        compressed_chars=len(normalized),
+        compressed_chars=len(result_text),
         original_estimated_tokens=estimate_tokens(original),
-        compressed_estimated_tokens=estimate_tokens(normalized),
-        text=normalized,
+        compressed_estimated_tokens=estimate_tokens(result_text),
+        text=result_text,
     )
