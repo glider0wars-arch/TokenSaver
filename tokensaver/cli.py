@@ -1,4 +1,4 @@
-"""Command-line interface for TokenSaver."""
+"""Command-line interface for Toknix (with a legacy tokensaver entry point)."""
 from __future__ import annotations
 
 import argparse
