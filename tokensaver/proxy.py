@@ -232,13 +232,16 @@ def _compress_tool_output_text(text: str, max_chars: int = _DEFAULT_TOOL_OUTPUT_
     priority.extend(i for i in range(max(0, len(collapsed) - tail_lines), len(collapsed)) if i not in priority)
     priority.extend(i for i in range(len(collapsed)) if i not in important and i not in priority)
     keep = set(important)
+    # Conservative incremental budget estimate keeps candidate selection O(n).
+    # Render once after selection rather than re-rendering the entire log per line.
+    estimated_size = len(result)
     for index in priority:
         if index in keep:
             continue
-        candidate = set(keep)
-        candidate.add(index)
-        if len(render(candidate)) <= max_chars:
-            keep = candidate
+        estimate = len(collapsed[index]) + 1 + len("[1 lines omitted]")
+        if estimated_size + estimate <= max_chars:
+            keep.add(index)
+            estimated_size += estimate
     return render(keep)
 
 
@@ -611,6 +614,11 @@ def transform_payload(
     """Compact supported request formats and leave unrelated payloads unchanged."""
     body = json.loads(json.dumps(payload))
     empty: dict[str, int | bool] = _stats(0, 0)
+    if tool_output_max_chars is None:
+        tool_output_max_chars = _env_int("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", 4000, minimum=1)
+    # Do not mutate any cache-marked payload: edits may invalidate provider caches.
+    if _contains_cache_control(body):
+        return body, empty
     if path.endswith("/chat/completions") and isinstance(body.get("messages"), list):
         saved = _compress_payload_tool_outputs(body["messages"], "chat", tool_output_max_chars)
         body["messages"], stats = compact_chat_messages(
