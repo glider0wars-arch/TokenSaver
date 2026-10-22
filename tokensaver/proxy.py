@@ -19,7 +19,7 @@ from .compressor import estimate_tokens
 
 # Strong signals only. A slash or a generic modal verb is not enough to promote a line.
 _IMPORTANT = re.compile(
-    r"\b(?:error|exception|traceback|failed|failure|regression|decision|decisions|todo|fixme|"
+    r"\b(?:error|assertionerror|exception|traceback|failed|failure|regression|decision|decisions|todo|fixme|"
     r"constraint|requirement|critical|blocker|rollback|security issue|windows compatibility|python\s+3\.\d+)\b|"
     r"\b(?:do not|don't|never|must not|should not|cannot|can't|remember this)\b|"
     r"(?:^|[\s:،.!؟])(?:خطا|اشکال|تصمیم|محدودیت|الزام|مهم است|فراموش نکن|انجام نشود|نباید)(?=$|[\s:،.!؟])|"
