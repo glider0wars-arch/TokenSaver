@@ -85,6 +85,7 @@ class StreamingProxyTests(unittest.TestCase):
         self.assertIn(b"data: first event", output)
         self.assertIn(b"data: [DONE]", output)
         self.assertEqual(response.read_calls, 0)
+        self.assertTrue(handler.close_connection)
 
     def test_options_request_body_is_forwarded_upstream(self):
         response = _StreamingResponse()
