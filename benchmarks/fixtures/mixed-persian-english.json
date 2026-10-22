@@ -1,125 +1,76 @@
 {
-  "name": "mixed-persian-english",
+  "name": "realistic-mixed-persian-english-debugging",
   "path": "/v1/chat/completions",
   "payload": {
     "model": "benchmark-model",
     "messages": [
       {
         "role": "system",
-        "content": "به فارسی و انگلیسی پاسخ بده و مسیر فایل‌ها و خطاها را دقیق نگه دار."
+        "content": "Preserve Persian constraints and exact English error messages. Keep API credentials secret."
       },
       {
         "role": "user",
-        "content": "تصمیم: برای مدیریت حافظه از کتابخانه استاندارد پایتون استفاده می‌کنیم. محدودیت: هیچ وابستگی زمان‌اجرای جدیدی اضافه نشود. Python 3.10 Windows compatibility"
+        "content": "درگاه باید روی localhost بماند و تنظیمات محیطی فقط هنگام شروع خوانده شوند. Do not print API keys."
       },
       {
         "role": "assistant",
-        "content": "Understood. I will preserve the exact constraints and keep the implementation compatible with Python 3.10."
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call-grep-22",
+            "type": "function",
+            "function": {
+              "name": "grep",
+              "arguments": "{\"pattern\":\"cache_control|provider_output_tokens\",\"path\":\"tokensaver/\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call-grep-22",
+        "content": "در تست ویندوز، مسیر فایل با جداکننده متفاوت برگشت و assert شکست خورد.\ntests/test_proxy.py::test_cache_marked_request_is_unchanged PASSED\nشرط مهم: اگر cache_control در درخواست وجود دارد، هیچ خروجی ابزاری فشرده نشود.\nTraceback (most recent call last):\n  File \"tests/test_proxy_streaming.py\", line 184, in test_usage_after_large_sse\nAssertionError: expected provider_output_tokens=37, got 0\nخروجی pytest: 1 failed, 55 passed in 0.82s\ngrep -n \"cache_control\" tokensaver/proxy.py\ntokensaver/proxy.py:431: if _contains_cache_control(static) or _contains_cache_control(old):\ngit diff --check: no whitespace errors\nخطا فقط زمانی رخ می‌دهد که استریم از سقف بافر عبور کند.\nقانون: کلیدهای API نباید وارد لاگ شوند و نباید در پیام خطا چاپ شوند.\nresponse body size: 1,760,221 bytes\nAnthropic event: message_delta, usage.output_tokens=37\nتست بعدی باید خروجی کوتاه «ok» را بدون تبدیل به reference نگه دارد."
+      },
+      {
+        "role": "assistant",
+        "content": "مشکل اصلی این است که رویداد usage انتهای SSE بعد از رد شدن از سقف بافر دیگر parse نمی‌شود."
       },
       {
         "role": "user",
-        "content": "خطای دقیق: ValueError: invalid config at proxy.py line 214. مسیر مهم: tokensaver/proxy.py"
-      },
-      {
-        "role": "assistant",
-        "content": "این خطا باید بدون حذف جزئیاتش در خلاصه باقی بماند. The exact path is tokensaver/proxy.py."
+        "content": "قید نهایی: اگر cache_control وجود دارد، بدنه را تغییر نده. پیام کوتاه ok هم باید حفظ شود."
       },
       {
         "role": "user",
-        "content": "پیام 1: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
+        "content": "For the desktop coding helper, keep Python 3.10 compatibility and avoid runtime dependencies."
       },
       {
         "role": "assistant",
-        "content": "پاسخ 1: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
+        "content": "The proxy should remain local by default and should never log API credentials."
       },
       {
         "role": "user",
-        "content": "پیام 2: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
+        "content": "The Windows CI job failed once because a test assumed POSIX path separators. Use pathlib in the test."
       },
       {
         "role": "assistant",
-        "content": "پاسخ 2: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
+        "content": "I will normalize the path assertion without changing production path handling."
       },
       {
         "role": "user",
-        "content": "پیام 3: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
+        "content": "We saw duplicate output references replace the literal response 'ok'. That makes the conversation less useful, so short outputs must stay literal."
       },
       {
         "role": "assistant",
-        "content": "پاسخ 3: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
-      },
-      {
-        "role": "user",
-        "content": "پیام 4: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
-      },
-      {
-        "role": "assistant",
-        "content": "پاسخ 4: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
-      },
-      {
-        "role": "user",
-        "content": "پیام 5: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
-      },
-      {
-        "role": "assistant",
-        "content": "پاسخ 5: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
-      },
-      {
-        "role": "user",
-        "content": "پیام 6: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
-      },
-      {
-        "role": "assistant",
-        "content": "پاسخ 6: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
-      },
-      {
-        "role": "user",
-        "content": "پیام 7: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
-      },
-      {
-        "role": "assistant",
-        "content": "پاسخ 7: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
-      },
-      {
-        "role": "user",
-        "content": "پیام 8: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
-      },
-      {
-        "role": "assistant",
-        "content": "پاسخ 8: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
-      },
-      {
-        "role": "user",
-        "content": "پیام 9: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
-      },
-      {
-        "role": "assistant",
-        "content": "پاسخ 9: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
-      },
-      {
-        "role": "user",
-        "content": "پیام 10: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
-      },
-      {
-        "role": "assistant",
-        "content": "پاسخ 10: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
-      },
-      {
-        "role": "user",
-        "content": "درخواست فعلی: گزارش را کوتاه کن ولی این محدودیت‌ها را نگه دار."
-      },
-      {
-        "role": "assistant",
-        "content": "The compacted context must retain the Persian decision and the exact English error."
+        "content": "Short duplicate outputs will remain unchanged; references are only useful when they actually reduce context."
       }
     ]
   },
   "needles": [
-    "تصمیم: برای مدیریت حافظه از کتابخانه استاندارد پایتون استفاده می‌کنیم",
-    "محدودیت: هیچ وابستگی زمان‌اجرای جدیدی اضافه نشود",
-    "ValueError: invalid config at proxy.py line 214",
-    "tokensaver/proxy.py",
-    "Python 3.10",
-    "Windows compatibility"
+    "expected provider_output_tokens=37, got 0",
+    "tokensaver/proxy.py:431",
+    "response body size: 1,760,221 bytes",
+    "API keys",
+    "پیام کوتاه ok هم باید حفظ شود",
+    "تنظیمات محیطی فقط هنگام شروع خوانده شوند"
   ]
 }
