@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from tokensaver.proxy import (
     _IMPORTANT, _compress_tool_output_text, _compress_payload_tool_outputs,
-    _parse_provider_usage, compact_anthropic_messages, compact_chat_messages,
+    _parse_provider_usage, _payload_breakdown, compact_anthropic_messages, compact_chat_messages,
     compact_response_input, transform_payload,
 )
 
@@ -148,6 +148,52 @@ class ProxyTests(unittest.TestCase):
             _compress_payload_tool_outputs(body["messages"], "chat", 256)
         self.assertLess(len(body["messages"][1]["content"]), len(old_output))
         self.assertEqual(body["messages"][4]["content"], latest_output)
+
+    def test_tool_output_compression_respects_cap_when_important_lines_fit(self):
+        lines = [f"ordinary line {i:03d} with padding" for i in range(30)]
+        lines[10] = "ERROR: important one"
+        lines[20] = "Traceback: important two"
+        compressed = _compress_tool_output_text("\\n".join(lines), max_chars=100, head_lines=2, tail_lines=2)
+        self.assertLessEqual(len(compressed), 100)
+        self.assertIn("ERROR: important one", compressed)
+        self.assertIn("Traceback: important two", compressed)
+
+    def test_duplicate_tool_output_reference_does_not_use_pre_compaction_index(self):
+        repeated = "same deterministic output\\n" * 50
+        messages = [
+            {"role": "assistant", "tool_calls": [{"id": "old", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "old", "content": repeated},
+            {"role": "assistant", "content": "other history"},
+            {"role": "assistant", "tool_calls": [{"id": "new", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "new", "content": repeated},
+        ]
+        _compress_payload_tool_outputs(messages, "chat", 80)
+        earlier = messages[1]["content"]
+        self.assertIn("identical tool output repeated later", earlier)
+        self.assertNotIn("see message", earlier)
+        self.assertEqual(messages[4]["content"], repeated)
+
+    def test_anthropic_cache_creation_breakdown_is_measured(self):
+        raw = (b'{"type":"message_start","message":{"usage":{"input_tokens":10,'
+               b'"cache_read_input_tokens":3,"cache_creation":{"ephemeral_5m_input_tokens":4,'
+               b'"ephemeral_1h_input_tokens":5}}}}')
+        usage = _parse_provider_usage(raw, "application/json")
+        self.assertEqual(usage, {
+            "input": 22,
+            "output": 0,
+            "cached_input": 3,
+            "cache_creation_input": 9,
+        })
+
+    def test_response_breakdown_does_not_hoist_late_developer_message(self):
+        payload = {"input": [
+            {"type": "message", "role": "user", "content": "old conversation"},
+            {"type": "message", "role": "developer", "content": "late developer instruction"},
+            {"type": "message", "role": "user", "content": "latest question"},
+        ]}
+        breakdown = _payload_breakdown("/v1/responses", payload, keep_recent=1)
+        self.assertNotIn("late developer instruction", breakdown["system"])
+        self.assertIn("late developer instruction", breakdown["old_history"])
 
     def test_usage_parser_handles_json_and_sse_responses(self):
         usage = _parse_provider_usage(
