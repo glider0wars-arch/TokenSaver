@@ -339,12 +339,10 @@ def _select_summary_lines(text: str, budget: int) -> str:
     def score(line: str) -> int:
         if re.search(r"\b(?:error|exception|traceback|failed|failure|status code|valueerror|typeerror)\b|\bline\s+\d+\b", line, re.I):
             return 100
-        if re.search(r"\b(?:constraint|requirement|decision|decisions|current request|durable decisions|never|must not|do not|windows compatibility|python\s+3\.\d+)\b", line, re.I):
+        if re.search(r"\b(?:constraint|requirement|decision|decisions|never|must not|do not|windows compatibility|python\s+3\.\d+)\b", line, re.I):
             return 90
         if re.search(r"(?:خطا|اشکال|تصمیم|محدودیت|الزام|فراموش نکن)", line):
             return 90
-        if re.search(r"\b[A-Za-z0-9_.-]+\.(?:py|ts|tsx|js|json|yaml|yml|toml|md)\b", line, re.I):
-            return 80
         if _IMPORTANT.search(line):
             return 60
         return 0
@@ -608,7 +606,6 @@ def transform_payload(
     """Compact supported request formats and leave unrelated payloads unchanged."""
     body = json.loads(json.dumps(payload))
     empty: dict[str, int | bool] = _stats(0, 0)
-    tool_output_max_chars = _env_int("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", 4000, minimum=1)
     if path.endswith("/chat/completions") and isinstance(body.get("messages"), list):
         saved = _compress_payload_tool_outputs(body["messages"], "chat", tool_output_max_chars)
         body["messages"], stats = compact_chat_messages(
