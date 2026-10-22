@@ -13,6 +13,38 @@ from tokensaver.proxy import (
 
 
 class ReviewRegressionTests(unittest.TestCase):
+    def test_compactors_fail_closed_on_non_object_chat_items(self):
+        messages = [{"role": "user", "content": "old " * 100}, "unexpected raw item", {"role": "assistant", "content": "latest " * 100}]
+        compacted, stats = compact_chat_messages(messages, keep_recent=1, cut_step=1, min_total_chars=1, min_old_chars=1)
+        self.assertEqual(compacted, messages)
+        self.assertFalse(stats["compressed"])
+
+    def test_compactors_fail_closed_on_non_object_responses_items(self):
+        items = [{"type": "message", "role": "user", "content": "old " * 100}, 7, {"type": "message", "role": "user", "content": "latest " * 100}]
+        compacted, stats = compact_response_input(items, keep_recent=1, cut_step=1, min_total_chars=1, min_old_chars=1)
+        self.assertEqual(compacted, items)
+        self.assertFalse(stats["compressed"])
+
+    def test_anthropic_compactor_does_not_drop_non_object_items(self):
+        messages = [{"role": "user", "content": "old " * 100}, None, {"role": "user", "content": "latest " * 100}]
+        compacted, stats = compact_anthropic_messages(messages, keep_recent=1, cut_step=1, min_total_chars=1, min_old_chars=1)
+        self.assertEqual(compacted, messages)
+        self.assertFalse(stats["compressed"])
+
+    def test_anthropic_after_char_count_includes_system_summary_prefix(self):
+        system = "Stable system prompt"
+        messages = [
+            {"role": "user", "content": "old context " * 100},
+            {"role": "assistant", "content": "old response " * 100},
+            {"role": "user", "content": "latest question " * 100},
+            {"role": "assistant", "content": "latest answer " * 100},
+        ]
+        compacted, stats = compact_anthropic_messages(messages, system=system, keep_recent=2, cut_step=1, min_total_chars=1, min_old_chars=1, max_summary_chars=500)
+        self.assertTrue(stats["compressed"])
+        summary = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\n" + stats["summary_text"]
+        expected_system = (system + "\n\n" + summary).strip()
+        actual_after = len(expected_system) + sum(len(f"{m.get('role', 'unknown')}: {_content_text(m.get('content', ''))}".strip()) for m in compacted)
+        self.assertEqual(stats["after_chars"], actual_after)
     def test_chat_cut_does_not_start_with_orphan_tool_message(self):
         messages = [
             {"role": "user", "content": "old context " * 100},
