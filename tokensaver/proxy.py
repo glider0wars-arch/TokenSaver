@@ -112,6 +112,9 @@ def load_config() -> GatewayConfig:
             is_loopback_upstream = False
     if parsed.scheme == "http" and not is_loopback_upstream:
         raise ValueError("TOKENSAVER_UPSTREAM_BASE_URL must use HTTPS for non-loopback upstreams.")
+    # Validate runtime settings at startup instead of silently falling back mid-request.
+    _env_int("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", 4000, minimum=1)
+    _env_int("TOKENSAVER_USAGE_TEE_MAX_BYTES", 1_000_000, minimum=1024)
     if allow_remote and not token:
         raise ValueError("TOKENSAVER_GATEWAY_TOKEN is required when TOKENSAVER_ALLOW_REMOTE=1.")
     if host not in {"127.0.0.1", "localhost", "::1"} and not allow_remote:
@@ -191,7 +194,7 @@ def _content_text(content: Any) -> str:
                 elif isinstance(part.get("content"), (str, list, dict)):
                     pieces.append(_content_text(part["content"]))
                 else:
-                    pieces.append(json.dumps(part, ensure_ascii=False, separators=(",", ":")))
+                    pieces.append(json.dumps(_redact_payload_value(part), ensure_ascii=False, separators=(",", ":"))
         return "\n".join(pieces)
     if content is None:
         return ""
