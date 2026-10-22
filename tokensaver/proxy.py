@@ -231,6 +231,12 @@ def compact_chat_messages(
     """Compact older chat turns while preserving stable bucketed prefixes."""
     if not isinstance(messages, list) or keep_recent < 1 or max_summary_chars < 100 or cut_step < 1:
         raise ValueError("Invalid messages or compression settings")
+    if any(not isinstance(item, dict) for item in messages):
+        original_chars = sum(
+            len(_message_text(item)) if isinstance(item, dict) else len(_content_text(item))
+            for item in messages
+        )
+        return messages, _stats(original_chars, original_chars)
     static: list[dict[str, Any]] = []
     conversation: list[dict[str, Any]] = []
     for item in messages:
@@ -296,8 +302,16 @@ def compact_anthropic_messages(
     min_total_chars: int = 5000, cut_step: int = 4,
 ) -> tuple[list[Any], dict[str, int | bool]]:
     """Compact Anthropic Messages while keeping tool_use/tool_result pairs intact."""
+    if not isinstance(messages, list) or keep_recent < 1 or max_summary_chars < 100 or cut_step < 1:
+        raise ValueError("Invalid Anthropic messages or compression settings")
+    if any(not isinstance(item, dict) for item in messages):
+        total = len(_content_text(system)) + sum(
+            len(_message_text(item)) if isinstance(item, dict) else len(_content_text(item))
+            for item in messages
+        )
+        return messages, _stats(total, total)
     static: list[dict[str, Any]] = []
-    conversation = [m for m in messages if isinstance(m, dict)]
+    conversation = list(messages)
     total = len(_content_text(system)) + sum(len(_message_text(m)) for m in conversation)
     if total <= min_total_chars or len(conversation) <= keep_recent:
         return messages, _stats(total, total)
@@ -331,10 +345,17 @@ def compact_anthropic_messages(
     summary = _select_summary_lines(old_text, max_summary_chars)
     if not summary:
         return messages, _stats(total, total)
-    after = len(_content_text(system)) + len(summary) + sum(len(_message_text(m)) for m in recent)
+    summary_note = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\n" + summary
+    if isinstance(system, str):
+        merged_system = (system + "\n\n" + summary_note).strip()
+    elif isinstance(system, list):
+        merged_system = _content_text(system + [{"type": "text", "text": summary_note}])
+    else:
+        merged_system = summary_note
+    after = len(merged_system) + sum(len(_message_text(m)) for m in recent)
     if after >= total:
         return messages, _stats(total, total)
-    # Preserve the original content-block structures for all retained messages.
+    # Preserve original content-block structures for all retained messages.
     return recent, _stats(total, after, len(summary), True) | {"summary_text": summary}
 
 
@@ -356,6 +377,12 @@ def compact_response_input(
     """Compact Responses API input without splitting reasoning from its next item."""
     if not isinstance(items, list) or keep_recent < 1 or max_summary_chars < 100 or cut_step < 1:
         raise ValueError("Invalid input items or compression settings")
+    if any(not isinstance(item, dict) for item in items):
+        before = sum(
+            len(_response_item_text(item)) if isinstance(item, dict) else len(_content_text(item))
+            for item in items
+        )
+        return items, _stats(before, before)
     static: list[dict[str, Any]] = []
     conversation: list[dict[str, Any]] = []
     for item in items:
