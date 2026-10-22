@@ -232,6 +232,19 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(transformed, body)
         self.assertFalse(stats["compressed"])
 
+    def test_large_tool_log_compresses_without_quadratic_slowdown(self):
+        import time
+        lines = [f"INFO worker {i % 8}: scanned shard={i} request_id=req-{i}" for i in range(50_000)]
+        lines.insert(25_000, "Traceback (most recent call last):")
+        lines.insert(25_001, "AssertionError: final usage event was not parsed")
+        raw = "\\n".join(lines)
+        started = time.perf_counter()
+        compacted = _compress_tool_output_text(raw, max_chars=4000)
+        elapsed = time.perf_counter() - started
+        self.assertIn("AssertionError: final usage event was not parsed", compacted)
+        self.assertLess(len(compacted), len(raw) // 4)
+        self.assertLess(elapsed, 5.0, f"50k-line tool log took {elapsed:.2f}s")
+
     def test_short_duplicate_tool_output_is_not_replaced_by_long_reference(self):
         messages = [
             {"role": "assistant", "content": None, "tool_calls": [{"id": "call-1", "type": "function", "function": {"name": "run", "arguments": "{}"}}]},
