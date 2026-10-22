@@ -72,16 +72,27 @@ def _live_usage(payload: dict[str, Any], *, url: str, key: str) -> dict[str, int
     if not isinstance(details, dict):
         details = {}
     try:
+        cached = usage.get("cache_read_input_tokens", usage.get("cached_input_tokens", details.get("cached_tokens", 0)))
+        cache_creation = usage.get("cache_creation_input_tokens", usage.get("cache_write_tokens", details.get("cache_write_tokens", 0)))
+        creation_details = usage.get("cache_creation", {})
+        if isinstance(creation_details, dict):
+            creation_total = sum(
+                max(0, int(creation_details.get(name, 0) or 0))
+                for name in ("ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens")
+            )
+            cache_creation = max(int(cache_creation or 0), creation_total)
+        cached = max(0, int(cached or 0))
+        cache_creation = max(0, int(cache_creation or 0))
         prompt = usage.get("prompt_tokens", usage.get("input_tokens"))
         output = usage.get("completion_tokens", usage.get("output_tokens"))
-        cached = details.get("cached_tokens", 0)
-        cache_creation = usage.get("cache_creation_input_tokens", usage.get("cache_write_tokens",
-                         details.get("cache_write_tokens", 0)))
+        input_tokens = max(0, int(prompt or 0))
+        if any(name in usage for name in ("cache_read_input_tokens", "cache_creation_input_tokens", "cache_creation")):
+            input_tokens += cached + cache_creation
         return {
-            "input": max(0, int(prompt or 0)),
+            "input": input_tokens,
             "output": max(0, int(output or 0)),
-            "cached_input": max(0, int(cached or 0)),
-            "cache_creation_input": max(0, int(cache_creation or 0)),
+            "cached_input": cached,
+            "cache_creation_input": cache_creation,
         }
     except (TypeError, ValueError):
         print("live response had malformed usage fields; no key was printed", file=sys.stderr)
