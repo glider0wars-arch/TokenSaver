@@ -25,11 +25,9 @@ def _json_chars(value: Any) -> int:
     return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
 
 
-def _cache_aware_cost(total_tokens: int, stable_prefix_tokens: int, *, price: float,
-                      cached_ratio: float, cacheable_fraction: float) -> float:
-    cached = min(total_tokens, max(0, int(total_tokens * cacheable_fraction)))
-    # Keep the stable prefix as an upper bound on cacheable input.
-    cached = min(cached, stable_prefix_tokens)
+def _cache_aware_cost(total_tokens: int, cached_tokens: int, *, price: float,
+                      cached_ratio: float) -> float:
+    cached = min(total_tokens, max(0, cached_tokens))
     return (cached * price * cached_ratio) + ((total_tokens - cached) * price)
 
 
@@ -94,15 +92,15 @@ def run(*, cached_ratio: float = 0.1, input_price: float = 1.0,
             if isinstance(m, dict) and m.get("role") in {"system", "developer"}
         ]
         stable_prefix_tokens = estimate_tokens(json.dumps(static_messages, ensure_ascii=False))
+        # Baseline assumes a configurable share of original history is cached.
+        # After compaction, assume only the unchanged system/developer prefix remains cached.
         before_cost = _cache_aware_cost(
-            before_tokens, stable_prefix_tokens, price=input_price,
-            cached_ratio=cached_ratio, cacheable_fraction=cacheable_fraction,
+            before_tokens, int(before_tokens * cacheable_fraction), price=input_price,
+            cached_ratio=cached_ratio,
         )
-        # Compaction usually changes old-history prefixes, so conservatively assume
-        # only explicit static instructions remain stable/cacheable afterward.
         after_cost = _cache_aware_cost(
             after_tokens, stable_prefix_tokens, price=input_price,
-            cached_ratio=cached_ratio, cacheable_fraction=cacheable_fraction,
+            cached_ratio=cached_ratio,
         )
         # Worst-case cache miss: every compacted input token is billed at the
         # uncached input rate because the rewritten prefix no longer matches.
@@ -143,7 +141,7 @@ def run(*, cached_ratio: float = 0.1, input_price: float = 1.0,
     lines.extend([
         "",
         "* Cost values are illustrative input-cost units, not provider quotes. The estimate uses the configured input price and cached-input ratio; real caching depends on provider rules and exact prefix stability.",
-        f"Assumptions: input price={input_price:g} units per million estimated tokens; cached-input price ratio={cached_ratio:g}; assumed cacheable fraction={cacheable_fraction:.0%}.",
+        f"Assumptions: input price={input_price * 1_000_000:g} units per million estimated tokens; cached-input price ratio={cached_ratio:g}; assumed cacheable fraction={cacheable_fraction:.0%}.",
         "",
     ])
     if live:
