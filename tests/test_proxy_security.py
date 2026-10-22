@@ -49,10 +49,10 @@ class GatewaySecurityTests(unittest.TestCase):
         })
         response = self.request(
             server,
-            "GET /health HTTP/1.1\\r\\nHost: localhost\\r\\n"
-            "X-TokenSaver-Token: gateway-secret\\r\\n"
-            "Authorization: Bearer upstream-api-key\\r\\n"
-            "Connection: close\\r\\n\\r\\n",
+            "GET /health HTTP/1.1\r\nHost: localhost\r\n"
+            "X-TokenSaver-Token: gateway-secret\r\n"
+            "Authorization: Bearer upstream-api-key\r\n"
+            "Connection: close\r\n\r\n",
         )
         self.assertIn("200", response)
 
@@ -62,8 +62,8 @@ class GatewaySecurityTests(unittest.TestCase):
             "TOKENSAVER_GATEWAY_TOKEN": "gateway-secret",
             "TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com",
         })
-        request = ("GET /health HTTP/1.1\\r\\nHost: localhost\\r\\n"
-                   "X-TokenSaver-Token: café\\r\\nConnection: close\\r\\n\\r\\n")
+        request = ("GET /health HTTP/1.1\r\nHost: localhost\r\n"
+                   "X-TokenSaver-Token: café\r\nConnection: close\r\n\r\n")
         with socket.create_connection(("127.0.0.1", server.server_port), timeout=3) as sock:
             sock.sendall(request.encode("latin-1"))
             response = sock.recv(4096).decode("iso-8859-1")
