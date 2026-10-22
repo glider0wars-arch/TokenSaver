@@ -22,6 +22,24 @@ Toknix is a small, provider-neutral prompt and context optimization kit for Clau
 3. For Grok, use `providers/grok.md` to copy the compact system prompt.
 4. Give the agent a task and ask it to return only the required output, with assumptions and blockers called out.
 
+## Response preferences and user control
+
+Toknix supports non-binding response preferences in the local prompt builder:
+
+```bash
+toknix request .toknix-memory.json "Explain the failing test" --style adaptive
+toknix request .toknix-memory.json "Give me the short version" --style concise
+toknix request .toknix-memory.json "Review the architecture in depth" --style detailed
+```
+
+- `adaptive` is the default: concise for simple tasks, thorough when the work needs it.
+- `concise` asks for brevity but explicitly preserves necessary details and honors requests for depth.
+- `detailed` asks for structured depth when useful.
+- These are preferences, not hard caps. They must never override the user's request, remove required work, or replace actual security permissions.
+- The prompt builder preserves the new message's whitespace and code exactly. The added preference itself costs a small number of extra prompt tokens, so measure net results rather than assuming every request gets cheaper.
+
+The existing local gateway also has conservative context compaction, tool-output trimming, cache-marker protection, and provider usage reporting. These features only affect traffic routed through the gateway; they do not intercept hidden history inside hosted chat apps.
+
 ## Core rules
 
 1. Preserve the user's goal, constraints, exact error messages, relevant paths, and decisions.
