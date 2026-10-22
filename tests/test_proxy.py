@@ -158,6 +158,7 @@ class ProxyTests(unittest.TestCase):
             "input": 100,
             "output": 20,
             "cached_input": 30,
+            "cache_creation_input": 0,
         })
         sse = (b'data: {"type":"response.completed","response":{"usage":{"input_tokens":11,"output_tokens":4,'
                b'"input_tokens_details":{"cached_tokens":3}}}}\n\n')
@@ -166,6 +167,7 @@ class ProxyTests(unittest.TestCase):
             "input": 11,
             "output": 4,
             "cached_input": 3,
+            "cache_creation_input": 0,
         })
 
     def test_important_regex_does_not_promote_generic_modal_words_or_slashes(self):
