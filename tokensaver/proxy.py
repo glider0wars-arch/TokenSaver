@@ -393,15 +393,17 @@ def _select_summary_lines(text: str, budget: int) -> str:
         ((score(line), index, line) for index, line in enumerate(lines) if score(line) > 0),
         key=lambda item: (-item[0], item[1]),
     )
-    for _, index, line in ranked:
+    for priority, index, line in ranked:
         cost = len(line) + 1
         if used + cost <= budget:
             selected.add(index)
             used += cost
-        elif _IMPORTANT.search(line):
-            # Never truncate an important line and present it as if it were intact.
-            # If the critical context cannot fit, let the caller skip compaction.
+        elif priority >= 90:
+            # Never truncate high-priority errors, decisions, or constraints.
+            # If these cannot fit, skip compaction rather than lose exact facts.
             return ""
+        # Lower-priority signals may be omitted when the budget is tight, but
+        # they are never clipped or rewritten as though the full line survived.
     for index in (0, len(lines) - 1):
         if index not in selected and used + len(lines[index]) + 1 <= budget:
             selected.add(index)
