@@ -75,6 +75,20 @@ class GatewaySecurityTests(unittest.TestCase):
             response = self.request(server, f"POST /v1/chat/completions HTTP/1.1\r\nHost: localhost\r\nContent-Length: {value}\r\nConnection: close\r\n\r\n")
             self.assertIn("400", response)
 
+
+    def test_chunked_request_body_is_rejected_instead_of_silently_dropped(self):
+        server = self.make_server({
+            "TOKENSAVER_UPSTREAM_BASE_URL": "http://127.0.0.1:1",
+        })
+        response = self.request(
+            server,
+            "POST /v1/chat/completions HTTP/1.1\\r\\nHost: localhost\\r\\n"
+            "Transfer-Encoding: chunked\\r\\nConnection: close\\r\\n\\r\\n0\\r\\n\\r\\n",
+        )
+        self.assertIn("400", response)
+        self.assertIn("Transfer-Encoding", response)
+
+
     def test_all_numeric_settings_are_validated_at_startup(self):
         with patch.dict(os.environ, {
             "TOKENSAVER_CUT_STEP": "many",
