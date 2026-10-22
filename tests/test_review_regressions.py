@@ -221,7 +221,7 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertEqual(messages[4]["content"], latest_output)
 
     def test_duplicate_earlier_tool_output_becomes_reference(self):
-        same = "line one\nline two"
+        same = "line one\nline two\n" + ("repeated but meaningful output " * 5)
         messages = [
             {"role": "assistant", "tool_calls": [{"id": "first", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
             {"role": "tool", "tool_call_id": "first", "content": same},
