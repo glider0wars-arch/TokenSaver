@@ -104,7 +104,7 @@ def main() -> int:
             print("| --- | ---: | --- |")
             for label, value, kind in rows:
                 print(f"| {label} | {value} | {kind} |")
-            print("\\nProvider token counts come from upstream usage metadata when available. Character breakdowns and rough token estimates are not provider-measured token counts.")
+            print("\nProvider token counts come from upstream usage metadata when available. Character breakdowns and rough token estimates are not provider-measured token counts.")
             return 0
 
         if args.command == "compress":
