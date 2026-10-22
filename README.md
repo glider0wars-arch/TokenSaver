@@ -90,9 +90,16 @@ The following table is the output of `python -m benchmarks.run` on code revision
 | long-chat | 18,913 / 4,152 | 4,729 / 1,038 | 78.1% | 0.001750 / 0.001010 | 0.001038 | False | 100.0% |
 | mixed-persian-english | 10,252 / 3,801 | 2,896 / 1,118 | 61.4% | 0.001072 / 0.001080 | 0.001118 | True | 100.0% |
 
-* Benchmark assumptions: input price 1 illustrative unit per million estimated tokens, cached-input price ratio 0.1, and 70% assumed cacheability before compaction. The "After if cache breaks" column is a worst-case estimate that bills the compacted input at the uncached rate. Real provider cache behavior and pricing can differ. The benchmark fails if needle retention drops below 95%.
+* Benchmark assumptions: input price 1 illustrative unit per million estimated tokens, cached-input price ratio 0.1, and 70% assumed cacheability before compaction. The "After if cache breaks" column is a worst-case estimate that bills the compacted input at the uncached rate. This simplified model does **not** price cache creation/writes, provider-specific cache breakpoints, or output tokens. Real provider cache behavior and pricing can differ. The benchmark fails if needle retention drops below 95%.
 
 Run `python -m benchmarks.run` to regenerate the Markdown table for the current revision. Token counts are estimates unless optional live mode reports provider-returned usage. The retention check is a useful regression signal, not proof that answer quality is unchanged.
+
+## Lessons from related tools and provider docs
+
+- **Keep the reusable prefix stable.** [OpenAI's prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching) explains that rewriting earlier context can invalidate cache reuse. TokenSaver therefore avoids compaction when explicit cache-control markers are present and reports cache reads separately from estimated savings.
+- **Track reads and writes, not just total input.** [Anthropic's caching guide](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) separates uncached input, cache reads, and cache creation. The gateway now normalizes those values for JSON and streaming responses, while clearly labeling them as provider-reported usage.
+- **Compression quality needs more than a token count.** [Microsoft's LLMLingua research](https://www.microsoft.com/en-us/research/project/llmlingua/llmlingua/) explores model-based token-level compression and task-level evaluations. TokenSaver deliberately keeps a dependency-free, readable, conservative approach, but its needle-retention benchmark is only a regression guard. A future quality claim needs paired answer-quality evaluations against an uncompressed baseline.
+
 
 ## When this does NOT help
 
