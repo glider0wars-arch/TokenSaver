@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import hmac
+import ipaddress
 import http.client
 import json
 import math
@@ -101,6 +102,19 @@ def load_config() -> GatewayConfig:
     upstream_key = os.getenv("TOKENSAVER_UPSTREAM_API_KEY", "")
     if any(ch in token for ch in "\r\n") or any(ch in upstream_key for ch in "\r\n"):
         raise ValueError("TOKENSAVER_GATEWAY_TOKEN and TOKENSAVER_UPSTREAM_API_KEY must not contain newlines.")
+    # The gateway forwards client Authorization headers as well as configured API
+    # keys. Do not allow credentials to cross a remote cleartext HTTP connection.
+    is_loopback_upstream = hostname.lower() == "localhost"
+    if not is_loopback_upstream:
+        try:
+            is_loopback_upstream = ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            is_loopback_upstream = False
+    if parsed.scheme == "http" and not is_loopback_upstream:
+        raise ValueError("TOKENSAVER_UPSTREAM_BASE_URL must use HTTPS for non-loopback upstreams.")
+    # Validate runtime settings at startup instead of silently falling back mid-request.
+    _env_int("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", 4000, minimum=1)
+    _env_int("TOKENSAVER_USAGE_TEE_MAX_BYTES", 1_000_000, minimum=1024)
     if allow_remote and not token:
         raise ValueError("TOKENSAVER_GATEWAY_TOKEN is required when TOKENSAVER_ALLOW_REMOTE=1.")
     if host not in {"127.0.0.1", "localhost", "::1"} and not allow_remote:
@@ -124,9 +138,37 @@ def load_config() -> GatewayConfig:
     )
 
 
+def _redact_payload_value(value: Any) -> Any:
+    """Replace nested image and binary payloads before serializing context text."""
+    if isinstance(value, dict):
+        kind = str(value.get("type", "")).lower()
+        if kind in {"image", "image_url", "input_image"} or "image_url" in value:
+            return "[image omitted]"
+        source = value.get("source")
+        if isinstance(source, dict) and source.get("type") == "base64" and isinstance(source.get("data"), str):
+            return "[image omitted]"
+        if kind == "base64" and isinstance(value.get("data"), str):
+            return "[image omitted]"
+        redacted: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in {"data_base64", "binary_data", "bytes"} and item is not None:
+                redacted[key] = "[binary omitted]"
+            else:
+                redacted[key] = _redact_payload_value(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_payload_value(item) for item in value]
+    return value
+
+
 def _content_text(content: Any) -> str:
     if isinstance(content, str):
         return content
+    if isinstance(content, dict):
+        redacted = _redact_payload_value(content)
+        if isinstance(redacted, str):
+            return redacted
+        return json.dumps(redacted, ensure_ascii=False, separators=(",", ":"))
     if isinstance(content, list):
         pieces: list[str] = []
         for part in content:
@@ -148,11 +190,11 @@ def _content_text(content: Any) -> str:
                 if isinstance(value, str):
                     pieces.append(value)
                 elif kind in {"tool_use", "tool_result", "function_call", "function_call_output"}:
-                    pieces.append(json.dumps(part, ensure_ascii=False, separators=(",", ":")))
+                    pieces.append(json.dumps(_redact_payload_value(part), ensure_ascii=False, separators=(",", ":")))
                 elif isinstance(part.get("content"), (str, list, dict)):
                     pieces.append(_content_text(part["content"]))
                 else:
-                    pieces.append(json.dumps(part, ensure_ascii=False, separators=(",", ":")))
+                    pieces.append(json.dumps(_redact_payload_value(part), ensure_ascii=False, separators=(",", ":")))
         return "\n".join(pieces)
     if content is None:
         return ""
@@ -177,16 +219,12 @@ def _message_text(message: dict[str, Any]) -> str:
 
 _ANSI_ESCAPE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 _DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
-_TOOL_OUTPUT_REFERENCE = "[identical tool output repeated later; see the later occurrence]"
+_TOOL_OUTPUT_REFERENCE = "[identical tool output repeated later; see message {index}]"
 
 
 def _compress_tool_output_text(text: str, max_chars: int = _DEFAULT_TOOL_OUTPUT_MAX_CHARS,
                                head_lines: int = 8, tail_lines: int = 8) -> str:
-    """Shrink noisy output, retaining all important lines even if they exceed the cap."""
-    if max_chars < 1:
-        raise ValueError("max_chars must be a positive integer.")
-    if head_lines < 0 or tail_lines < 0:
-        raise ValueError("head_lines and tail_lines must be non-negative.")
+    """Conservatively shrink noisy tool output while retaining important lines."""
     cleaned = _ANSI_ESCAPE.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
     lines = cleaned.split("\n")
     collapsed: list[str] = []
@@ -200,42 +238,41 @@ def _compress_tool_output_text(text: str, max_chars: int = _DEFAULT_TOOL_OUTPUT_
             line = f"{line} (repeated x{j - i})"
         collapsed.append(line)
         i = j
-    if len("\n".join(collapsed)) <= max_chars:
-        return "\n".join(collapsed)
-    important = {i for i, line in enumerate(collapsed) if _IMPORTANT.search(line)}
-    def render(keep: set[int]) -> str:
-        output: list[str] = []
-        omitted = 0
-        in_omitted = False
-        for index, line in enumerate(collapsed):
-            if index in keep:
-                if in_omitted:
-                    output.append(f"[{omitted} lines omitted]")
-                    omitted = 0
-                    in_omitted = False
-                output.append(line)
-            else:
-                omitted += 1
-                in_omitted = True
-        if in_omitted:
-            output.append(f"[{omitted} lines omitted]")
-        return "\n".join(output)
-    result = render(important)
-    if len(result) > max_chars:
-        # Important facts outrank the size target; never silently discard them.
-        return "\n".join(line for i, line in enumerate(collapsed) if i in important)
-    priority = list(range(min(head_lines, len(collapsed))))
-    priority.extend(i for i in range(max(0, len(collapsed) - tail_lines), len(collapsed)) if i not in priority)
-    priority.extend(i for i in range(len(collapsed)) if i not in important and i not in priority)
-    keep = set(important)
-    for index in priority:
+    rendered = "\n".join(collapsed)
+    if len(rendered) <= max_chars:
+        return rendered
+    keep = set(range(min(head_lines, len(collapsed))))
+    keep.update(range(max(0, len(collapsed) - tail_lines), len(collapsed)))
+    keep.update(i for i, line in enumerate(collapsed) if _IMPORTANT.search(line))
+    output: list[str] = []
+    omitted = 0
+    in_omitted = False
+    for index, line in enumerate(collapsed):
         if index in keep:
+            if in_omitted:
+                output.append(f"[{omitted} lines omitted]")
+                omitted = 0
+                in_omitted = False
+            output.append(line)
+        else:
+            omitted += 1
+            in_omitted = True
+    if in_omitted:
+        output.append(f"[{omitted} lines omitted]")
+    result = "\n".join(output)
+    if len(result) <= max_chars:
+        return result
+    # Important lines win over the nominal cap, so errors are never silently lost.
+    important = [line for line in collapsed if _IMPORTANT.search(line)]
+    selected = set(important)
+    selected.update(line for line in output if line.startswith("[") and "omitted]" in line)
+    budget = max(0, max_chars - sum(len(line) + 1 for line in selected) - 24)
+    for line in output:
+        if line in selected:
             continue
-        candidate = set(keep)
-        candidate.add(index)
-        if len(render(candidate)) <= max_chars:
-            keep = candidate
-    return render(keep)
+        if sum(len(x) + 1 for x in selected) < max_chars - 24 and len(line) <= budget:
+            selected.add(line)
+    return "\n".join(line for line in output if line in selected)
 
 
 def _tool_output_slots(items: list[Any], kind: str) -> list[tuple[int, Any, str, str]]:
@@ -278,6 +315,10 @@ def _compress_payload_tool_outputs(items: list[Any] | str, kind: str | dict[str,
         raise ValueError("Expected a list of request items and a supported tool-output kind.")
     if max_chars < 1:
         raise ValueError("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS must be a positive integer.")
+    # Rewriting any part of a cache-controlled prompt can invalidate the reusable
+    # prefix, so leave tool output untouched whenever explicit cache metadata exists.
+    if _contains_cache_control(items):
+        return 0
     protected_start = len(items)
     if kind == "chat":
         protected_start = next((i for i in range(len(items) - 1, -1, -1)
@@ -292,23 +333,20 @@ def _compress_payload_tool_outputs(items: list[Any] | str, kind: str | dict[str,
                                 and isinstance(items[i].get("content"), list)
                                 and any(isinstance(b, dict) and b.get("type") == "tool_use" for b in items[i]["content"])), len(items))
     slots = _tool_output_slots(items, kind)
-    # Only reference output in the protected latest cycle, which survives compaction.
-    later: set[str] = set()
-    for index, _owner, _key, raw_text in slots:
-        if index >= protected_start:
-            later.add(_ANSI_ESCAPE.sub("", raw_text).replace("\r\n", "\n").replace("\r", "\n"))
+    later: dict[str, int] = {}
     saved = 0
-    for index, owner, key, raw_text in slots:
+    for index, owner, key, raw_text in reversed(slots):
         cleaned = _ANSI_ESCAPE.sub("", raw_text).replace("\r\n", "\n").replace("\r", "\n")
         if index < protected_start:
             if cleaned in later:
-                replacement = _TOOL_OUTPUT_REFERENCE
+                replacement = _TOOL_OUTPUT_REFERENCE.format(index=later[cleaned] + 1)
             elif len(cleaned) > max_chars:
                 replacement = _compress_tool_output_text(cleaned, max_chars=max_chars)
             else:
                 replacement = cleaned
             owner[key] = replacement
             saved += max(0, len(raw_text) - len(replacement))
+        later.setdefault(cleaned, index)
     return saved
 
 
@@ -355,22 +393,30 @@ def _select_summary_lines(text: str, budget: int) -> str:
         ((score(line), index, line) for index, line in enumerate(lines) if score(line) > 0),
         key=lambda item: (-item[0], item[1]),
     )
-    for _, index, line in ranked:
+    for priority, index, line in ranked:
         cost = len(line) + 1
         if used + cost <= budget:
             selected.add(index)
             used += cost
-        elif _IMPORTANT.search(line) and used < budget and budget - used > 40:
-            clipped = line[:max(1, budget - used - 12)] + "…[trimmed]"
-            lines[index] = clipped
-            selected.add(index)
-            used += len(clipped) + 1
+        elif priority >= 90:
+            # Never truncate high-priority errors, decisions, or constraints.
+            # If these cannot fit, skip compaction rather than lose exact facts.
+            return ""
+        # Lower-priority signals may be omitted when the budget is tight, but
+        # they are never clipped or rewritten as though the full line survived.
     for index in (0, len(lines) - 1):
         if index not in selected and used + len(lines[index]) + 1 <= budget:
             selected.add(index)
             used += len(lines[index]) + 1
     if not selected:
-        return lines[-1][:budget]
+        # Keep a complete line when possible. Generic prose may be clipped as a
+        # last resort, but never truncate an error, decision, constraint, or code-like line.
+        fallback = lines[-1]
+        if len(fallback) <= budget:
+            return fallback
+        if _IMPORTANT.search(fallback) or re.match(r"^\s+", fallback) or re.search(r"[{}();=]|\b(?:def|class|return|import|const|function)\b", fallback):
+            return ""
+        return fallback[:budget]
     return "\n".join(lines[index] for index in sorted(selected))
 
 
@@ -392,12 +438,6 @@ def compact_chat_messages(
     """Compact older chat turns while preserving stable bucketed prefixes."""
     if not isinstance(messages, list) or keep_recent < 1 or max_summary_chars < 100 or cut_step < 1:
         raise ValueError("Invalid messages or compression settings")
-    if any(not isinstance(item, dict) for item in messages):
-        original_chars = sum(
-            len(_message_text(item)) if isinstance(item, dict) else len(_content_text(item))
-            for item in messages
-        )
-        return messages, _stats(original_chars, original_chars)
     static: list[dict[str, Any]] = []
     conversation: list[dict[str, Any]] = []
     seen_conversation = False
@@ -428,7 +468,7 @@ def compact_chat_messages(
             return messages, _stats(original_chars, original_chars)
         cut = call_index
     old, recent = conversation[:cut], conversation[cut:]
-    if _contains_cache_control(static) or _contains_cache_control(old):
+    if _contains_cache_control(static) or _contains_cache_control(conversation):
         return messages, _stats(original_chars, original_chars)
     old_text = "\n".join(_message_text(m) for m in old)
     if not old or len(old_text) < min_old_chars:
@@ -468,23 +508,15 @@ def compact_anthropic_messages(
     min_total_chars: int = 5000, cut_step: int = 4,
 ) -> tuple[list[Any], dict[str, int | bool]]:
     """Compact Anthropic Messages while keeping tool_use/tool_result pairs intact."""
-    if not isinstance(messages, list) or keep_recent < 1 or max_summary_chars < 100 or cut_step < 1:
-        raise ValueError("Invalid Anthropic messages or compression settings")
-    if any(not isinstance(item, dict) for item in messages):
-        total = len(_content_text(system)) + sum(
-            len(_message_text(item)) if isinstance(item, dict) else len(_content_text(item))
-            for item in messages
-        )
-        return messages, _stats(total, total)
     static: list[dict[str, Any]] = []
-    conversation = list(messages)
+    conversation = [m for m in messages if isinstance(m, dict)]
     total = len(_content_text(system)) + sum(len(_message_text(m)) for m in conversation)
     if total <= min_total_chars or len(conversation) <= keep_recent:
         return messages, _stats(total, total)
     cut = _bucketed_cut(len(conversation), keep_recent, cut_step)
     if cut <= 0:
         return messages, _stats(total, total)
-    if _contains_cache_control(system) or _contains_cache_control(conversation[:cut]):
+    if _contains_cache_control(system) or _contains_cache_control(conversation):
         return messages, _stats(total, total)
     uses, results = _anthropic_pair_ids(conversation)
     # Keep every retained tool_result paired with its tool_use. If a cut lands
@@ -511,17 +543,10 @@ def compact_anthropic_messages(
     summary = _select_summary_lines(old_text, max_summary_chars)
     if not summary:
         return messages, _stats(total, total)
-    summary_note = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\n" + summary
-    if isinstance(system, str):
-        merged_system = (system + "\n\n" + summary_note).strip()
-    elif isinstance(system, list):
-        merged_system = _content_text(system + [{"type": "text", "text": summary_note}])
-    else:
-        merged_system = summary_note
-    after = len(merged_system) + sum(len(_message_text(m)) for m in recent)
+    after = len(_content_text(system)) + len(summary) + sum(len(_message_text(m)) for m in recent)
     if after >= total:
         return messages, _stats(total, total)
-    # Preserve original content-block structures for all retained messages.
+    # Preserve the original content-block structures for all retained messages.
     return recent, _stats(total, after, len(summary), True) | {"summary_text": summary}
 
 
@@ -543,12 +568,6 @@ def compact_response_input(
     """Compact Responses API input without splitting reasoning from its next item."""
     if not isinstance(items, list) or keep_recent < 1 or max_summary_chars < 100 or cut_step < 1:
         raise ValueError("Invalid input items or compression settings")
-    if any(not isinstance(item, dict) for item in items):
-        before = sum(
-            len(_response_item_text(item)) if isinstance(item, dict) else len(_content_text(item))
-            for item in items
-        )
-        return items, _stats(before, before)
     static: list[dict[str, Any]] = []
     conversation: list[dict[str, Any]] = []
     seen_conversation = False
@@ -570,7 +589,7 @@ def compact_response_input(
     cut = _bucketed_cut(len(conversation), keep_recent, cut_step)
     if cut <= 0:
         return items, _stats(before, before)
-    if _contains_cache_control(static) or _contains_cache_control(conversation[:cut]):
+    if _contains_cache_control(static) or _contains_cache_control(conversation):
         return items, _stats(before, before)
     # Never retain a function output without its matching call.
     while cut < len(conversation) and conversation[cut].get("type") == "function_call_output":
@@ -621,7 +640,7 @@ def transform_payload(
             stats["compressed"] = True
         return body, stats
     if path.endswith("/messages") and isinstance(body.get("messages"), list):
-        saved = _compress_payload_tool_outputs(body["messages"], "anthropic", tool_output_max_chars)
+        saved = 0 if _contains_cache_control(body.get("system")) else _compress_payload_tool_outputs(body["messages"], "anthropic", tool_output_max_chars)
         compacted, stats = compact_anthropic_messages(
             body["messages"], system=body.get("system"), keep_recent=keep_recent,
             max_summary_chars=max_summary_chars, min_old_chars=min_old_chars,
@@ -644,7 +663,7 @@ def transform_payload(
             body["system"] = summary_text
         return body, stats
     if path.endswith("/responses") and isinstance(body.get("input"), list):
-        saved = _compress_payload_tool_outputs(body["input"], "responses", tool_output_max_chars)
+        saved = 0 if _contains_cache_control(body.get("instructions")) else _compress_payload_tool_outputs(body["input"], "responses", tool_output_max_chars)
         body["input"], stats = compact_response_input(
             body["input"], keep_recent=keep_recent, max_summary_chars=max_summary_chars,
             min_old_chars=min_old_chars, min_total_chars=min_total_chars, cut_step=cut_step)
@@ -658,56 +677,56 @@ def transform_payload(
 
 
 def _payload_breakdown(path: str, payload: dict[str, Any], keep_recent: int) -> dict[str, str]:
-    """Return categorized request text for rough estimates, preserving message order."""
+    """Return categorized request text for rough estimates, never provider-measured counts."""
     out = {"system": "", "old_history": "", "recent_turns": "", "tool_outputs": ""}
     if path.endswith("/chat/completions") and isinstance(payload.get("messages"), list):
-        items = payload["messages"]
         static: list[dict[str, Any]] = []
         conv: list[dict[str, Any]] = []
-        seen = False
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            if not seen and item.get("role") in {"system", "developer"}:
+        seen_conversation = False
+        for raw in payload["messages"]:
+            item = raw if isinstance(raw, dict) else {"role": "user", "content": _content_text(raw)}
+            if not seen_conversation and item.get("role") in {"system", "developer"}:
                 static.append(item)
             else:
-                seen = True
+                seen_conversation = True
                 conv.append(item)
         out["system"] = "\n".join(_message_text(m) for m in static)
         out["old_history"] = "\n".join(_message_text(m) for m in conv[:-keep_recent])
         out["recent_turns"] = "\n".join(_message_text(m) for m in conv[-keep_recent:])
-        out["tool_outputs"] = "\n".join(str(m.get("content", "")) for m in conv if m.get("role") == "tool")
+        out["tool_outputs"] = "\n".join(_content_text(m.get("content", "")) for m in conv if m.get("role") == "tool")
     elif path.endswith("/messages") and isinstance(payload.get("messages"), list):
-        conv = [m for m in payload["messages"] if isinstance(m, dict)]
+        conv = [m if isinstance(m, dict) else {"role": "user", "content": _content_text(m)}
+                for m in payload["messages"]]
         out["system"] = _content_text(payload.get("system", ""))
         out["old_history"] = "\n".join(_message_text(m) for m in conv[:-keep_recent])
         out["recent_turns"] = "\n".join(_message_text(m) for m in conv[-keep_recent:])
-        out["tool_outputs"] = "\n".join(
-            _content_text(block.get("content", "")) for m in conv
+        out["tool_outputs"] = "\n".join(_content_text(block.get("content", "")) for m in conv
             for block in (m.get("content", []) if isinstance(m.get("content"), list) else [])
-            if isinstance(block, dict) and block.get("type") == "tool_result"
-        )
-    elif path.endswith("/responses") and isinstance(payload.get("input"), list):
-        static: list[dict[str, Any]] = []
-        conv: list[dict[str, Any]] = []
-        seen = False
-        for item in payload["input"]:
-            if not isinstance(item, dict):
-                continue
-            if (not seen and item.get("type", "message") == "message"
-                    and item.get("role") in {"system", "developer"}):
-                static.append(item)
-            else:
-                seen = True
-                conv.append(item)
+            if isinstance(block, dict) and block.get("type") == "tool_result")
+    elif path.endswith("/responses"):
         instruction_text = _content_text(payload.get("instructions", ""))
-        static_text = "\n".join(_response_item_text(m) for m in static)
-        out["system"] = "\n".join(part for part in (instruction_text, static_text) if part)
-        out["old_history"] = "\n".join(_response_item_text(m) for m in conv[:-keep_recent])
-        out["recent_turns"] = "\n".join(_response_item_text(m) for m in conv[-keep_recent:])
-        out["tool_outputs"] = "\n".join(
-            _content_text(m.get("output", "")) for m in conv if m.get("type") == "function_call_output"
-        )
+        input_value = payload.get("input")
+        if isinstance(input_value, str):
+            out["system"] = instruction_text
+            out["recent_turns"] = input_value
+        elif isinstance(input_value, list):
+            static: list[dict[str, Any]] = []
+            conv: list[dict[str, Any]] = []
+            seen_conversation = False
+            for raw in input_value:
+                item = raw if isinstance(raw, dict) else {"type": "message", "role": "user", "content": _content_text(raw)}
+                if (not seen_conversation and item.get("type", "message") == "message"
+                        and item.get("role") in {"system", "developer"}):
+                    static.append(item)
+                else:
+                    seen_conversation = True
+                    conv.append(item)
+            static_text = "\n".join(_response_item_text(m) for m in static)
+            out["system"] = "\n".join(part for part in (instruction_text, static_text) if part)
+            out["old_history"] = "\n".join(_response_item_text(m) for m in conv[:-keep_recent])
+            out["recent_turns"] = "\n".join(_response_item_text(m) for m in conv[-keep_recent:])
+            out["tool_outputs"] = "\n".join(_content_text(m.get("output", "")) for m in conv
+                if m.get("type") == "function_call_output")
     return out
 
 
@@ -741,13 +760,6 @@ def _usage_from_object(value: Any) -> dict[str, int] | None:
                     max(0, int(v or 0)) for v in write_details.values()
                     if isinstance(v, (int, float, str))
                 ))
-        creation_details = usage.get("cache_creation", {})
-        if isinstance(creation_details, dict):
-            creation_total = sum(
-                max(0, int(creation_details.get(key, 0) or 0))
-                for key in ("ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens")
-            )
-            cache_creation = max(cache_creation, creation_total)
         raw_input = max(0, int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0))
         # Anthropic reports cache reads/writes separately from the uncached input count.
         if "cache_read_input_tokens" in usage or "cache_creation_input_tokens" in usage:
@@ -890,7 +902,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                 stats.setdefault(category + "_chars", 0)
                 stats.setdefault("estimated_" + category + "_tokens", 0)
             for key in ("provider_input_tokens", "provider_output_tokens", "provider_cached_input_tokens",
-                        "provider_cache_creation_input_tokens", "provider_usage_responses", "provider_usage_parse_errors"):
+                        "provider_cache_creation_input_tokens", "provider_usage_responses", "provider_usage_parse_errors", "provider_usage_skipped_oversize"):
                 stats.setdefault(key, 0)
             return self._json_response(200, stats)
         self._forward()
@@ -1030,7 +1042,11 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                     self.wfile.write(chunk + b"\r\n")
                     self.wfile.flush()
                 self.wfile.write(b"0\r\n\r\n")
-                if not tee_overflow and ("json" in content_type.lower() or "text/event-stream" in content_type.lower()):
+                usage_content_type = "json" in content_type.lower() or "text/event-stream" in content_type.lower()
+                if tee_overflow and usage_content_type:
+                    with self.server.stats_lock:  # type: ignore[attr-defined]
+                        self.server.stats["provider_usage_skipped_oversize"] = self.server.stats.get("provider_usage_skipped_oversize", 0) + 1  # type: ignore[attr-defined]
+                elif not tee_overflow and usage_content_type:
                     usage = _parse_provider_usage(bytes(tee), content_type)
                     if usage is None:
                         with self.server.stats_lock:  # type: ignore[attr-defined]
