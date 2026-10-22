@@ -186,13 +186,16 @@ class ReviewRegressionTests(unittest.TestCase):
     def test_duplicate_earlier_tool_output_becomes_reference(self):
         same = "line one\nline two"
         messages = [
+            {"role": "assistant", "tool_calls": [{"id": "first", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
             {"role": "tool", "tool_call_id": "first", "content": same},
             {"role": "assistant", "content": "between"},
+            {"role": "assistant", "tool_calls": [{"id": "second", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
             {"role": "tool", "tool_call_id": "second", "content": same},
         ]
         _compress_payload_tool_outputs(messages, "chat", 100)
-        self.assertIn("identical tool output repeated later", messages[0]["content"])
-        self.assertEqual(messages[2]["content"], same)
+        self.assertIn("identical tool output repeated later", messages[1]["content"])
+        self.assertNotIn("see message", messages[1]["content"])
+        self.assertEqual(messages[4]["content"], same)
 
     def test_provider_usage_parses_json_and_sse(self):
         json_usage = _parse_provider_usage(
