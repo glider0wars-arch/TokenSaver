@@ -5,6 +5,8 @@ import json
 import os
 import shutil
 import tempfile
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -215,6 +217,38 @@ class RollingMemory:
             "max_items_per_category": self.max_items_per_category,
             "max_total_chars": self.max_total_chars,
         }
+
+
+
+@contextmanager
+def memory_file_lock(path: str | Path, *, stale_after: float = 60.0, timeout: float = 10.0):
+    """Cross-platform lock for a memory file's read-modify-write transaction."""
+    target = Path(path).expanduser()
+    lock_path = target.with_name(target.name + ".lock")
+    deadline = time.monotonic() + timeout
+    fd = None
+    while fd is None:
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.write(fd, str(os.getpid()).encode("ascii"))
+        except FileExistsError:
+            try:
+                if time.time() - lock_path.stat().st_mtime > stale_after:
+                    lock_path.unlink()
+                    continue
+            except FileNotFoundError:
+                continue
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"Timed out waiting for memory lock: {lock_path}")
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        os.close(fd)
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def build_request(memory: RollingMemory, new_message: str) -> str:
