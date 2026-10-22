@@ -52,6 +52,15 @@ class MemoryTests(unittest.TestCase):
         memory.add_turn("user", "x" * 200)
         self.assertLessEqual(memory._total_chars(), 100)
 
+    def test_memory_does_not_evict_unlisted_recent_context_category(self):
+        memory = RollingMemory(max_total_chars=10)
+        memory.sections["GOALS"] = ["12345678"]
+        memory.sections["RECENT_CONTEXT"] = ["xx"]
+        before = {key: list(value) for key, value in memory.sections.items()}
+        with self.assertRaisesRegex(ValueError, "GOALS, RULES, and DECISIONS are protected"):
+            memory.add("DECISIONS", "x")
+        self.assertEqual(memory.sections, before)
+
     def test_save_and_load_roundtrip_and_backup(self):
         memory = RollingMemory(project="Test")
         memory.add("DECISIONS", "Use standard library")
