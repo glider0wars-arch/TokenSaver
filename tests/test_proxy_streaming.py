@@ -87,6 +87,59 @@ class StreamingProxyTests(unittest.TestCase):
         self.assertEqual(response.read_calls, 0)
         self.assertTrue(handler.close_connection)
 
+    def test_oversized_usage_tee_is_counted_without_buffering_or_blocking(self):
+        class LargeJsonResponse(_StreamingResponse):
+            def __init__(self):
+                self.chunks = [b"x" * 1024, b"y" * 20]
+                self.read_calls = 0
+
+            def getheaders(self):
+                return [("Content-Type", "application/json")]
+
+            def getheader(self, name, default=None):
+                return "application/json" if name.lower() == "content-type" else default
+
+        response = LargeJsonResponse()
+        connection = _StreamingConnection(response)
+        config = SimpleNamespace(
+            max_body_bytes=1024,
+            upstream_base_url="http://127.0.0.1:9999",
+            upstream_timeout=1,
+            upstream_api_key="",
+            allow_remote=False,
+            gateway_token="",
+        )
+        server = SimpleNamespace(
+            gateway_config=config,
+            stats_lock=threading.Lock(),
+            stats={
+                "requests": 0, "compressed_requests": 0, "chars_saved": 0,
+                "upstream_errors": 0, "transform_errors": 0,
+            },
+        )
+        handler = object.__new__(TokenSaverProxyHandler)
+        handler._request_config = config
+        handler._request_content_length = 0
+        handler.command = "GET"
+        handler.path = "/v1/models"
+        handler.headers = Message()
+        handler.server = server
+        handler.wfile = io.BytesIO()
+        handler.close_connection = False
+        handler.send_response = lambda *args, **kwargs: None
+        handler.send_header = lambda *args, **kwargs: None
+        handler.end_headers = lambda *args, **kwargs: None
+
+        with patch.dict("os.environ", {"TOKENSAVER_USAGE_TEE_MAX_BYTES": "1024"}):
+            with patch("tokensaver.proxy.http.client.HTTPConnection", return_value=connection):
+                handler._forward()
+
+        self.assertIn(b"x" * 1024, handler.wfile.getvalue())
+        self.assertIn(b"y" * 20, handler.wfile.getvalue())
+        self.assertEqual(server.stats.get("provider_usage_skipped_oversize"), 1)
+        self.assertEqual(server.stats.get("provider_usage_parse_errors", 0), 0)
+        self.assertEqual(response.read_calls, 0)
+
     def test_options_request_body_is_forwarded_upstream(self):
         response = _StreamingResponse()
         connection = _StreamingConnection(response)
