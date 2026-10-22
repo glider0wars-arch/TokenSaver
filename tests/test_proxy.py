@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from tokensaver.proxy import (
     _IMPORTANT, _compress_output_text, _compress_payload_tool_outputs,
@@ -121,21 +122,21 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(compacted[reasoning_index + 1].get("content"), "The item following reasoning")
 
     def test_tool_output_compression_keeps_errors_persian_and_windows_lines(self):
-        raw = ("\\x1b[32mINFO repeated line\\x1b[0m\\r\\n" * 80
-               + "Traceback (most recent call last):\\r\\n"
-               + "ValueError: exact failure\\r\\n"
-               + "خطا: اطلاعات مهم را حفظ کن\\r\\n"
-               + "tail marker\\r\\n")
+        raw = ("\x1b[32mINFO repeated line\x1b[0m\r\n" * 80
+               + "Traceback (most recent call last):\r\n"
+               + "ValueError: exact failure\r\n"
+               + "خطا: اطلاعات مهم را حفظ کن\r\n"
+               + "tail marker\r\n")
         compressed = _compress_output_text(raw, 300, head_lines=3, tail_lines=3)
-        self.assertNotIn("\\x1b[32m", compressed)
+        self.assertNotIn("\x1b[32m", compressed)
         self.assertIn("ValueError: exact failure", compressed)
         self.assertIn("خطا: اطلاعات مهم را حفظ کن", compressed)
         self.assertIn("tail marker", compressed)
         self.assertIn("repeated x80", compressed)
 
     def test_tool_output_compression_protects_latest_tool_cycle(self):
-        old_output = "INFO repetitive log line\\n" * 100
-        latest_output = "LATEST TOOL OUTPUT MUST REMAIN EXACT\\n" * 100
+        old_output = "INFO repetitive log line\n" * 100
+        latest_output = "LATEST TOOL OUTPUT MUST REMAIN EXACT\n" * 100
         body = {"messages": [
             {"role": "assistant", "tool_calls": [{"id": "old-call", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
             {"role": "tool", "tool_call_id": "old-call", "content": old_output},
@@ -143,7 +144,7 @@ class ProxyTests(unittest.TestCase):
             {"role": "assistant", "tool_calls": [{"id": "new-call", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
             {"role": "tool", "tool_call_id": "new-call", "content": latest_output},
         ]}
-        with unittest.mock.patch.dict("os.environ", {"TOKENSAVER_TOOL_OUTPUT_MAX_CHARS": "256"}):
+        with patch.dict("os.environ", {"TOKENSAVER_TOOL_OUTPUT_MAX_CHARS": "256"}):
             _compress_payload_tool_outputs("/v1/chat/completions", body)
         self.assertLess(len(body["messages"][1]["content"]), len(old_output))
         self.assertEqual(body["messages"][4]["content"], latest_output)
@@ -159,7 +160,7 @@ class ProxyTests(unittest.TestCase):
             "provider_cached_input_tokens": 30,
         })
         sse = (b'data: {"type":"response.completed","response":{"usage":{"input_tokens":11,"output_tokens":4,'
-               b'"input_tokens_details":{"cached_tokens":3}}}\\n\\n')
+               b'"input_tokens_details":{"cached_tokens":3}}}\n\n')
         usage = _usage_from_response(sse, is_sse=True)
         self.assertEqual(usage, {
             "provider_input_tokens": 11,
