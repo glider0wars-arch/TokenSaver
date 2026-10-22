@@ -41,6 +41,34 @@ class GatewaySecurityTests(unittest.TestCase):
             allowed = self.request(server, f"GET {path} HTTP/1.1\r\nHost: localhost\r\nX-TokenSaver-Token: test-only-token\r\nConnection: close\r\n\r\n")
             self.assertIn("200", allowed)
 
+    def test_gateway_header_takes_precedence_over_upstream_bearer_key(self):
+        server = self.make_server({
+            "TOKENSAVER_ALLOW_REMOTE": "1",
+            "TOKENSAVER_GATEWAY_TOKEN": "gateway-secret",
+            "TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com",
+        })
+        response = self.request(
+            server,
+            "GET /health HTTP/1.1\\r\\nHost: localhost\\r\\n"
+            "X-TokenSaver-Token: gateway-secret\\r\\n"
+            "Authorization: Bearer upstream-api-key\\r\\n"
+            "Connection: close\\r\\n\\r\\n",
+        )
+        self.assertIn("200", response)
+
+    def test_non_ascii_gateway_header_returns_401_without_crashing(self):
+        server = self.make_server({
+            "TOKENSAVER_ALLOW_REMOTE": "1",
+            "TOKENSAVER_GATEWAY_TOKEN": "gateway-secret",
+            "TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com",
+        })
+        request = ("GET /health HTTP/1.1\\r\\nHost: localhost\\r\\n"
+                   "X-TokenSaver-Token: café\\r\\nConnection: close\\r\\n\\r\\n")
+        with socket.create_connection(("127.0.0.1", server.server_port), timeout=3) as sock:
+            sock.sendall(request.encode("latin-1"))
+            response = sock.recv(4096).decode("iso-8859-1")
+        self.assertIn("401", response)
+
     def test_invalid_and_negative_content_length_return_400(self):
         server = self.make_server({"TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com"})
         for value in ("invalid", "-1"):
