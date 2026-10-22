@@ -101,8 +101,8 @@ def main() -> int:
             with memory_file_lock(args.path):
                 memory = RollingMemory.load(args.path)
                 added = memory.add(args.category, args.text)
-                memory.save(args.path)
                 evicted = list(memory.last_evicted)
+                memory.save(args.path)
             print("Added." if added else "Skipped empty or duplicate fact.")
             if evicted:
                 print("Evicted to fit memory limits: " + ", ".join(evicted))
@@ -131,8 +131,8 @@ def main() -> int:
             with memory_file_lock(args.path):
                 memory = RollingMemory.load(args.path)
                 memory.add_turn(args.role, args.text)
-                memory.save(args.path)
                 evicted = list(memory.last_evicted)
+                memory.save(args.path)
             print("Recent turn stored.")
             if evicted:
                 print("Evicted to fit memory limits: " + ", ".join(evicted))
@@ -144,8 +144,8 @@ def main() -> int:
                 # Always emit the prompt, even if persisting the new turn later fails.
                 print(prompt)
                 memory.add_turn("user", args.message)
-                memory.save(args.path)
                 evicted = list(memory.last_evicted)
+                memory.save(args.path)
             if evicted:
                 print("Evicted to fit memory limits: " + ", ".join(evicted), file=sys.stderr)
             return 0
