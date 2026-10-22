@@ -87,6 +87,46 @@ class StreamingProxyTests(unittest.TestCase):
         self.assertEqual(response.read_calls, 0)
         self.assertTrue(handler.close_connection)
 
+    def test_final_usage_event_is_parsed_after_stream_exceeds_tee_limit(self):
+        response = _StreamingResponse()
+        response.chunks = [b"data: " + (b"x" * 1_100_000) + b"\\n\\n",
+                           b'data: {"type":"message_delta","usage":{"output_tokens":37}}\\n\\n']
+        connection = _StreamingConnection(response)
+        config = SimpleNamespace(
+            max_body_bytes=1024,
+            upstream_base_url="http://127.0.0.1:9999",
+            upstream_timeout=1,
+            upstream_api_key="",
+            allow_remote=False,
+            gateway_token="",
+            usage_tee_max_bytes=1024,
+        )
+        server = SimpleNamespace(
+            gateway_config=config,
+            stats_lock=threading.Lock(),
+            stats={"requests": 0, "compressed_requests": 0, "chars_saved": 0,
+                   "upstream_errors": 0, "transform_errors": 0},
+        )
+        handler = object.__new__(TokenSaverProxyHandler)
+        handler._request_config = config
+        handler._request_content_length = 0
+        handler.command = "GET"
+        handler.path = "/v1/models"
+        handler.headers = Message()
+        handler.server = server
+        handler.wfile = io.BytesIO()
+        handler.close_connection = False
+        handler.send_response = lambda *args, **kwargs: None
+        handler.send_header = lambda *args, **kwargs: None
+        handler.end_headers = lambda *args, **kwargs: None
+
+        with patch("tokensaver.proxy.http.client.HTTPConnection", return_value=connection):
+            handler._forward()
+
+        self.assertGreater(len(handler.wfile.getvalue()), 1_000_000)
+        self.assertEqual(server.stats["provider_output_tokens"], 37)
+        self.assertEqual(server.stats["provider_usage_responses"], 1)
+
     def test_options_request_body_is_forwarded_upstream(self):
         response = _StreamingResponse()
         connection = _StreamingConnection(response)
