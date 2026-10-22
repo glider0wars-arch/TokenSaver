@@ -793,6 +793,10 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
         if self.headers.get("Transfer-Encoding"):
             self._json_response(400, {"error": "Transfer-Encoding is not supported; send a Content-Length body."})
             return False
+        content_length_headers = self.headers.get_all("Content-Length", [])
+        if len(content_length_headers) > 1:
+            self._json_response(400, {"error": "Multiple Content-Length headers are not supported."})
+            return False
         try:
             length = int(self.headers.get("Content-Length", "0") or "0")
         except (TypeError, ValueError):
@@ -979,6 +983,9 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                 self.close_connection = True
         finally:
             conn.close()
+            # We advertise Connection: close, so also stop the server-side
+            # request loop and never parse leftover bytes as a second request.
+            self.close_connection = True
 
 
 def serve(host: str | None = None, port: int | None = None) -> None:
