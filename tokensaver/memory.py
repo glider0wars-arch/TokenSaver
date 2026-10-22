@@ -57,7 +57,7 @@ class RollingMemory:
         while turns and total() > self.max_total_chars:
             turns.pop(0)
             evicted.append("recent_turns")
-        for category in ("OPEN_TASKS", "CURRENT_STATE", "FILES", "RECENT_CONTEXT"):
+        for category in ("OPEN_TASKS", "CURRENT_STATE", "FILES"):
             while sections[category] and (
                 total() > self.max_total_chars
                 or len(sections[category]) > self.max_items_per_category
@@ -67,8 +67,8 @@ class RollingMemory:
         if total() > self.max_total_chars:
             raise ValueError(
                 f"Memory exceeds max_total_chars={self.max_total_chars}; "
-                "GOALS, RULES, and DECISIONS are protected. Shorten the project name "
-                "or explicitly remove a durable fact."
+                "GOALS, RULES, and DECISIONS are protected; RECENT_CONTEXT is not auto-evicted. "
+                "Shorten the project name or explicitly remove a durable fact."
             )
         self.sections = sections
         self.recent_turns = turns
