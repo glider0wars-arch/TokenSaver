@@ -208,12 +208,12 @@ class ReviewRegressionTests(unittest.TestCase):
 
     def test_anthropic_sse_usage_merges_input_and_output_events(self):
         sse = (
-            b'event: message_start\\n'
-            b'data: {"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":30,"cache_creation_input_tokens":10}}}\\n\\n'
-            b'event: message_delta\\n'
-            b'data: {"type":"message_delta","usage":{"output_tokens":9}}\\n\\n'
-            b'event: message_stop\\n'
-            b'data: {"type":"message_stop"}\\n\\n'
+            b'event: message_start\n'
+            b'data: {"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":30,"cache_creation_input_tokens":10}}}\n\n'
+            b'event: message_delta\n'
+            b'data: {"type":"message_delta","usage":{"output_tokens":9}}\n\n'
+            b'event: message_stop\n'
+            b'data: {"type":"message_stop"}\n\n'
         )
         self.assertEqual(
             _parse_provider_usage(sse, "text/event-stream"),
