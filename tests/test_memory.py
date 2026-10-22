@@ -109,6 +109,24 @@ class MemoryTests(unittest.TestCase):
             self.assertIn("Memory file not found", err.getvalue())
             self.assertFalse(path.exists())
 
+    def test_memory_remove_and_clear_cli_commands(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "memory.json"
+            RollingMemory(project="Project").save(path)
+            memory = RollingMemory.load(path)
+            memory.add("RULES", "Keep the API stable")
+            memory.save(path)
+            with patch.object(sys, "argv", ["tokensaver", "memory-remove", str(path), "RULES", "Keep the API stable"]), patch("sys.stdout", io.StringIO()):
+                self.assertEqual(main(), 0)
+            self.assertEqual(RollingMemory.load(path).sections["RULES"], [])
+            with patch.object(sys, "argv", ["tokensaver", "memory-add", str(path), "GOALS", "Build app"]), patch("sys.stdout", io.StringIO()):
+                self.assertEqual(main(), 0)
+            with patch.object(sys, "argv", ["tokensaver", "memory-clear", str(path), "--yes"]), patch("sys.stdout", io.StringIO()):
+                self.assertEqual(main(), 0)
+            cleared = RollingMemory.load(path)
+            self.assertEqual(cleared.project, "Project")
+            self.assertFalse(any(cleared.sections.values()))
+
 
 if __name__ == "__main__":
     unittest.main()
