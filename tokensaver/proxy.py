@@ -717,6 +717,12 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             with self.server.stats_lock:  # type: ignore[attr-defined]
                 stats = dict(self.server.stats)  # type: ignore[attr-defined]
             stats["rough_estimated_tokens_saved"] = estimate_tokens("x" * int(stats.get("chars_saved", 0)))
+            for category in ("system", "old_history", "recent_turns", "tool_outputs"):
+                stats.setdefault(category + "_chars", 0)
+                stats.setdefault("estimated_" + category + "_tokens", 0)
+            for key in ("provider_input_tokens", "provider_output_tokens", "provider_cached_input_tokens",
+                        "provider_usage_responses", "provider_usage_parse_errors"):
+                stats.setdefault(key, 0)
             return self._json_response(200, stats)
         self._forward()
 
@@ -773,16 +779,23 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
         if raw and self.command in {"POST", "PUT", "PATCH"} and "json" in self.headers.get("Content-Type", "").lower():
             try:
                 payload = json.loads(raw.decode("utf-8"))
-                if isinstance(payload, dict) and config.enabled:
-                    payload, stats = transform_payload(
-                        self.path.split("?", 1)[0], payload,
-                        keep_recent= config.keep_recent_messages,
-                        max_summary_chars=config.summary_max_chars,
-                        min_old_chars=config.min_old_chars,
-                        min_total_chars=config.min_total_chars,
-                        cut_step=config.cut_step,
-                    )
-                    outgoing = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                if isinstance(payload, dict):
+                    breakdown = _payload_breakdown(self.path.split("?", 1)[0], payload, config.keep_recent_messages)
+                    with self.server.stats_lock:  # type: ignore[attr-defined]
+                        for category, category_text in breakdown.items():
+                            self.server.stats[category + "_chars"] = self.server.stats.get(category + "_chars", 0) + len(category_text)  # type: ignore[attr-defined]
+                            token_key = "estimated_" + category + "_tokens"
+                            self.server.stats[token_key] = self.server.stats.get(token_key, 0) + estimate_tokens(category_text)  # type: ignore[attr-defined]
+                    if config.enabled:
+                        payload, stats = transform_payload(
+                            self.path.split("?", 1)[0], payload,
+                            keep_recent=config.keep_recent_messages,
+                            max_summary_chars=config.summary_max_chars,
+                            min_old_chars=config.min_old_chars,
+                            min_total_chars=config.min_total_chars,
+                            cut_step=config.cut_step,
+                        )
+                        outgoing = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             except Exception:
                 # Preserve upstream behavior but make transform failures visible in /stats.
                 with self.server.stats_lock:  # type: ignore[attr-defined]
@@ -825,14 +838,34 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             self.end_headers()
             headers_sent = True
             if has_body:
+                try:
+                    tee_limit = _env_int("TOKENSAVER_USAGE_TEE_MAX_BYTES", 1_000_000, minimum=1024)
+                except ValueError:
+                    tee_limit = 1_000_000
+                tee = bytearray()
+                tee_overflow = False
+                content_type = upstream.getheader("Content-Type", "")
                 while True:
                     chunk = upstream.read(65536)
                     if not chunk:
                         break
-                    self.wfile.write(f"{len(chunk):X}\r\n".encode("ascii"))
-                    self.wfile.write(chunk + b"\r\n")
+                    if not tee_overflow:
+                        if len(tee) + len(chunk) <= tee_limit:
+                            tee.extend(chunk)
+                        else:
+                            tee_overflow = True
+                            tee.clear()
+                    self.wfile.write(f"{len(chunk):X}\\r\\n".encode("ascii"))
+                    self.wfile.write(chunk + b"\\r\\n")
                     self.wfile.flush()
-                self.wfile.write(b"0\r\n\r\n")
+                self.wfile.write(b"0\\r\\n\\r\\n")
+                if not tee_overflow and ("json" in content_type.lower() or "text/event-stream" in content_type.lower()):
+                    usage = _parse_provider_usage(bytes(tee), content_type)
+                    if usage is None:
+                        with self.server.stats_lock:  # type: ignore[attr-defined]
+                            self.server.stats["provider_usage_parse_errors"] = self.server.stats.get("provider_usage_parse_errors", 0) + 1  # type: ignore[attr-defined]
+                    else:
+                        _record_provider_usage(self.server, usage)
             with self.server.stats_lock:  # type: ignore[attr-defined]
                 self.server.stats["upstream_errors"] += int(upstream.status >= 500)  # type: ignore[attr-defined]
         except (OSError, http.client.HTTPException) as exc:
@@ -866,7 +899,16 @@ def serve(host: str | None = None, port: int | None = None) -> None:
     server = ThreadingHTTPServer((config.host, config.port), TokenSaverProxyHandler)
     server.gateway_config = config  # type: ignore[attr-defined]
     server.stats_lock = threading.Lock()  # type: ignore[attr-defined]
-    server.stats = {"requests": 0, "compressed_requests": 0, "chars_saved": 0, "upstream_errors": 0, "transform_errors": 0}  # type: ignore[attr-defined]
+    server.stats = {
+        "requests": 0, "compressed_requests": 0, "chars_saved": 0,
+        "upstream_errors": 0, "transform_errors": 0,
+        "system_chars": 0, "old_history_chars": 0, "recent_turns_chars": 0, "tool_outputs_chars": 0,
+        "estimated_system_tokens": 0, "estimated_old_history_tokens": 0,
+        "estimated_recent_turns_tokens": 0, "estimated_tool_outputs_tokens": 0,
+        "provider_input_tokens": 0, "provider_output_tokens": 0,
+        "provider_cached_input_tokens": 0, "provider_usage_responses": 0,
+        "provider_usage_parse_errors": 0,
+    }  # type: ignore[attr-defined]
     print(f"TokenSaver Gateway listening on http://{config.host}:{config.port}")
     print("Health: /health | Stats: /stats | Ctrl+C to stop")
     try:
