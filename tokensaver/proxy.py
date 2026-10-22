@@ -121,12 +121,12 @@ def load_config() -> GatewayConfig:
 
 
 
-_ANSI_ESCAPE = re.compile(r"\\x1b\\[[0-?]*[ -/]*[@-~]")
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def _compress_output_text(text: str, max_chars: int, *, head_lines: int = 12, tail_lines: int = 12) -> str:
     """Compress verbose tool output while retaining errors and head/tail context."""
-    cleaned = _ANSI_ESCAPE.sub("", text).replace("\\r\\n", "\\n").replace("\\r", "\\n")
+    cleaned = _ANSI_ESCAPE.sub("", text).replace("\r\n", "\n").replace("\r", "\n")
     lines = cleaned.splitlines()
     collapsed: list[str] = []
     i = 0
@@ -137,8 +137,8 @@ def _compress_output_text(text: str, max_chars: int, *, head_lines: int = 12, ta
         count = j - i
         collapsed.append(lines[i] if count == 1 else f"{lines[i]} (repeated x{count})")
         i = j
-    if len("\\n".join(collapsed)) <= max_chars:
-        return "\\n".join(collapsed)
+    if len("\n".join(collapsed)) <= max_chars:
+        return "\n".join(collapsed)
     selected = set(range(min(head_lines, len(collapsed))))
     selected.update(range(max(0, len(collapsed) - tail_lines), len(collapsed)))
     selected.update(i for i, line in enumerate(collapsed) if _IMPORTANT.search(line))
@@ -150,21 +150,21 @@ def _compress_output_text(text: str, max_chars: int, *, head_lines: int = 12, ta
             out.append(f"[{index - previous - 1} lines omitted]")
         out.append(collapsed[index])
         previous = index
-    result = "\\n".join(out)
+    result = "\n".join(out)
     if len(result) <= max_chars:
         return result
     # Important lines take priority; trim only non-important head/tail lines.
     important = [line for line in collapsed if _IMPORTANT.search(line)]
-    essential = "\\n".join(important)
+    essential = "\n".join(important)
     if len(essential) >= max_chars:
         return essential
     remaining = max_chars - len(essential) - 24
     if remaining <= 0:
         return essential
-    head = "\\n".join(collapsed[:head_lines])
-    tail = "\\n".join(collapsed[-tail_lines:])
-    context = (head + "\\n[output truncated]\\n" + tail)[:remaining]
-    return essential + "\\n[N lines omitted]\\n" + context
+    head = "\n".join(collapsed[:head_lines])
+    tail = "\n".join(collapsed[-tail_lines:])
+    context = (head + "\n[output truncated]\n" + tail)[:remaining]
+    return essential + "\n[N lines omitted]\n" + context
 
 
 def _compress_payload_tool_outputs(path: str, body: dict[str, Any]) -> None:
@@ -868,10 +868,10 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                         else:
                             tee_overflow = True
                             tee.clear()
-                    self.wfile.write(f"{len(chunk):X}\\r\\n".encode("ascii"))
-                    self.wfile.write(chunk + b"\\r\\n")
+                    self.wfile.write(f"{len(chunk):X}\r\n".encode("ascii"))
+                    self.wfile.write(chunk + b"\r\n")
                     self.wfile.flush()
-                self.wfile.write(b"0\\r\\n\\r\\n")
+                self.wfile.write(b"0\r\n\r\n")
             if tee and not tee_overflow and ("json" in content_type or "text/event-stream" in content_type):
                 usage = _usage_from_response(bytes(tee), is_sse="text/event-stream" in content_type)
                 _record_provider_usage(self.server, usage)
