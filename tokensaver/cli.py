@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 from .compressor import compress_text
-from .memory import CATEGORIES, RollingMemory, build_request
+from .memory import CATEGORIES, RollingMemory, build_request, memory_file_lock
 
 
 def _configure_utf8() -> None:
@@ -91,22 +91,29 @@ def main() -> int:
             return 0
         if args.command == "memory-init":
             path = Path(args.path).expanduser()
-            if path.exists() and not args.force:
-                raise ValueError(f"{path} already exists. Use --force to replace it; a .bak copy will be retained.")
-            RollingMemory(project=args.project).save(path)
+            with memory_file_lock(path):
+                if path.exists() and not args.force:
+                    raise ValueError(f"{path} already exists. Use --force to replace it; a .bak copy will be retained.")
+                RollingMemory(project=args.project).save(path)
             print(f"Created rolling memory: {path}")
             return 0
         if args.command == "memory-add":
-            memory = RollingMemory.load(args.path)
-            added = memory.add(args.category, args.text)
-            memory.save(args.path)
+            with memory_file_lock(args.path):
+                memory = RollingMemory.load(args.path)
+                added = memory.add(args.category, args.text)
+                memory.save(args.path)
+                evicted = list(memory.last_evicted)
             print("Added." if added else "Skipped empty or duplicate fact.")
+            if evicted:
+                print("Evicted to fit memory limits: " + ", ".join(evicted))
             return 0
         if args.command == "memory-remove":
-            memory = RollingMemory.load(args.path)
-            removed = memory.remove(args.category, args.text)
+            with memory_file_lock(args.path):
+                memory = RollingMemory.load(args.path)
+                removed = memory.remove(args.category, args.text)
+                if removed:
+                    memory.save(args.path)
             if removed:
-                memory.save(args.path)
                 print("Removed.")
             else:
                 print("No exact matching fact was found.")
@@ -114,26 +121,39 @@ def main() -> int:
         if args.command == "memory-clear":
             if not args.yes:
                 raise ValueError("Clearing memory requires --yes.")
-            memory = RollingMemory.load(args.path)
-            memory.clear()
-            memory.save(args.path)
+            with memory_file_lock(args.path):
+                memory = RollingMemory.load(args.path)
+                memory.clear()
+                memory.save(args.path)
             print("Memory cleared; project name and memory limits were preserved.")
             return 0
         if args.command == "memory-turn":
-            memory = RollingMemory.load(args.path)
-            memory.add_turn(args.role, args.text)
-            memory.save(args.path)
+            with memory_file_lock(args.path):
+                memory = RollingMemory.load(args.path)
+                memory.add_turn(args.role, args.text)
+                memory.save(args.path)
+                evicted = list(memory.last_evicted)
             print("Recent turn stored.")
+            if evicted:
+                print("Evicted to fit memory limits: " + ", ".join(evicted))
             return 0
         if args.command == "request":
-            memory = RollingMemory.load(args.path)
-            prompt = build_request(memory, args.message)
-            memory.add_turn("user", args.message)
-            memory.save(args.path)
-            print(prompt)
+            with memory_file_lock(args.path):
+                memory = RollingMemory.load(args.path)
+                prompt = build_request(memory, args.message)
+                # Always emit the prompt, even if persisting the new turn later fails.
+                print(prompt)
+                memory.add_turn("user", args.message)
+                memory.save(args.path)
+                evicted = list(memory.last_evicted)
+            if evicted:
+                print("Evicted to fit memory limits: " + ", ".join(evicted), file=sys.stderr)
             return 0
         if args.command == "memory-render":
-            print(RollingMemory.load(args.path).render(include_recent=not args.no_recent))
+            with memory_file_lock(args.path):
+                memory = RollingMemory.load(args.path)
+                rendered = memory.render(include_recent=not args.no_recent)
+            print(rendered)
             return 0
         return 2
     except (OSError, ValueError, UnicodeError, json.JSONDecodeError) as exc:
