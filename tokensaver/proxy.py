@@ -194,7 +194,7 @@ def _content_text(content: Any) -> str:
                 elif isinstance(part.get("content"), (str, list, dict)):
                     pieces.append(_content_text(part["content"]))
                 else:
-                    pieces.append(json.dumps(_redact_payload_value(part), ensure_ascii=False, separators=(",", ":"))
+                    pieces.append(json.dumps(_redact_payload_value(part), ensure_ascii=False, separators=(",", ":")))
         return "\n".join(pieces)
     if content is None:
         return ""
