@@ -297,11 +297,11 @@ def _contains_cache_control(value: Any) -> bool:
 
 
 def _select_summary_lines(text: str, budget: int) -> str:
-    """Extract readable, deterministic lines, preferring explicit high-signal items."""
+    """Select high-signal lines by importance, not merely their position in history."""
     lines: list[str] = []
     seen: set[str] = set()
     for raw in text.splitlines():
-        line = re.sub(r"[ \t]+", " ", raw).strip()
+        line = re.sub(r"[ \\t]+", " ", raw).strip()
         if not line:
             continue
         key = line.casefold()
@@ -311,25 +311,44 @@ def _select_summary_lines(text: str, budget: int) -> str:
         lines.append(line)
     if not lines:
         return ""
-    selected = {i for i, line in enumerate(lines) if _IMPORTANT.search(line)}
-    selected.update({0, len(lines) - 1})
-    output: list[str] = []
+
+    def score(line: str) -> int:
+        if re.search(r"\\b(?:error|exception|traceback|failed|failure|status code|valueerror|typeerror)\\b|\\bline\\s+\\d+\\b", line, re.I):
+            return 100
+        if re.search(r"\\b(?:constraint|requirement|decision|decisions|current request|durable decisions|never|must not|do not|windows compatibility|python\\s+3\\.\\d+)\\b", line, re.I):
+            return 90
+        if re.search(r"(?:خطا|اشکال|تصمیم|محدودیت|الزام|فراموش نکن)", line):
+            return 90
+        if re.search(r"\\b[A-Za-z0-9_.-]+\\.(?:py|ts|tsx|js|json|yaml|yml|toml|md)\\b", line, re.I):
+            return 80
+        if _IMPORTANT.search(line):
+            return 60
+        return 0
+
+    selected: set[int] = set()
     used = 0
-    for i in sorted(selected):
-        line = lines[i]
-        remaining = budget - used
-        if remaining <= 0:
-            break
-        if len(line) > remaining:
-            if _IMPORTANT.search(line) and remaining > 40:
-                line = line[:max(1, remaining - 12)] + "…[trimmed]"
-            else:
-                continue
-        output.append(line)
-        used += len(line) + 1
-    if not output:
+    ranked = sorted(
+        ((score(line), index, line) for index, line in enumerate(lines) if score(line) > 0),
+        key=lambda item: (-item[0], item[1]),
+    )
+    for _, index, line in ranked:
+        cost = len(line) + 1
+        if used + cost <= budget:
+            selected.add(index)
+            used += cost
+        elif _IMPORTANT.search(line) and used < budget and budget - used > 40:
+            clipped = line[:max(1, budget - used - 12)] + "…[trimmed]"
+            lines[index] = clipped
+            selected.add(index)
+            used += len(clipped) + 1
+    for index in (0, len(lines) - 1):
+        if index not in selected and used + len(lines[index]) + 1 <= budget:
+            selected.add(index)
+            used += len(lines[index]) + 1
+    if not selected:
         return lines[-1][:budget]
-    return "\n".join(output)
+    return "\\n".join(lines[index] for index in sorted(selected))
+
 
 
 def _stats(before: int, after: int, summary_chars: int = 0, compressed: bool = False) -> dict[str, int | bool]:
