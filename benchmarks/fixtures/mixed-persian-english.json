@@ -1,0 +1,125 @@
+{
+  "name": "mixed-persian-english",
+  "path": "/v1/chat/completions",
+  "payload": {
+    "model": "benchmark-model",
+    "messages": [
+      {
+        "role": "system",
+        "content": "به فارسی و انگلیسی پاسخ بده و مسیر فایل‌ها و خطاها را دقیق نگه دار."
+      },
+      {
+        "role": "user",
+        "content": "تصمیم: برای مدیریت حافظه از کتابخانه استاندارد پایتون استفاده می‌کنیم. محدودیت: هیچ وابستگی زمان‌اجرای جدیدی اضافه نشود."
+      },
+      {
+        "role": "assistant",
+        "content": "Understood. I will preserve the exact constraints and keep the implementation compatible with Python 3.10."
+      },
+      {
+        "role": "user",
+        "content": "خطای دقیق: ValueError: invalid config at proxy.py line 214. مسیر مهم: tokensaver/proxy.py"
+      },
+      {
+        "role": "assistant",
+        "content": "این خطا باید بدون حذف جزئیاتش در خلاصه باقی بماند. The exact path is tokensaver/proxy.py."
+      },
+      {
+        "role": "user",
+        "content": "پیام 1: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
+      },
+      {
+        "role": "assistant",
+        "content": "پاسخ 1: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
+      },
+      {
+        "role": "user",
+        "content": "پیام 2: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
+      },
+      {
+        "role": "assistant",
+        "content": "پاسخ 2: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
+      },
+      {
+        "role": "user",
+        "content": "پیام 3: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
+      },
+      {
+        "role": "assistant",
+        "content": "پاسخ 3: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
+      },
+      {
+        "role": "user",
+        "content": "پیام 4: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
+      },
+      {
+        "role": "assistant",
+        "content": "پاسخ 4: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
+      },
+      {
+        "role": "user",
+        "content": "پیام 5: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
+      },
+      {
+        "role": "assistant",
+        "content": "پاسخ 5: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
+      },
+      {
+        "role": "user",
+        "content": "پیام 6: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
+      },
+      {
+        "role": "assistant",
+        "content": "پاسخ 6: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
+      },
+      {
+        "role": "user",
+        "content": "پیام 7: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
+      },
+      {
+        "role": "assistant",
+        "content": "پاسخ 7: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
+      },
+      {
+        "role": "user",
+        "content": "پیام 8: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
+      },
+      {
+        "role": "assistant",
+        "content": "پاسخ 8: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
+      },
+      {
+        "role": "user",
+        "content": "پیام 9: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
+      },
+      {
+        "role": "assistant",
+        "content": "پاسخ 9: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
+      },
+      {
+        "role": "user",
+        "content": "پیام 10: باید کیفیت پاسخ حفظ شود و نکات مهم حذف نشوند. English context: Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. Preserve decisions, file paths, exact errors, and Windows compatibility. "
+      },
+      {
+        "role": "assistant",
+        "content": "پاسخ 10: اول تست شکست‌خورده، بعد اصلاح و اجرای کل تست‌ها. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. Keep the change focused and do not claim unmeasured savings. "
+      },
+      {
+        "role": "user",
+        "content": "درخواست فعلی: گزارش را کوتاه کن ولی این محدودیت‌ها را نگه دار."
+      },
+      {
+        "role": "assistant",
+        "content": "The compacted context must retain the Persian decision and the exact English error."
+      }
+    ]
+  },
+  "needles": [
+    "تصمیم: برای مدیریت حافظه از کتابخانه استاندارد پایتون استفاده می‌کنیم",
+    "محدودیت: هیچ وابستگی زمان‌اجرای جدیدی اضافه نشود",
+    "ValueError: invalid config at proxy.py line 214",
+    "tokensaver/proxy.py",
+    "Python 3.10",
+    "Windows compatibility"
+  ]
+}
