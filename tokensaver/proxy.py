@@ -645,7 +645,7 @@ def serve(host: str | None = None, port: int | None = None) -> None:
     server = ThreadingHTTPServer((config.host, config.port), TokenSaverProxyHandler)
     server.gateway_config = config  # type: ignore[attr-defined]
     server.stats_lock = threading.Lock()  # type: ignore[attr-defined]
-    server.stats = {"requests": 0, "compressed_requests": 0, "chars_saved": 0, "upstream_errors": 0}  # type: ignore[attr-defined]
+    server.stats = {"requests": 0, "compressed_requests": 0, "chars_saved": 0, "upstream_errors": 0, "transform_errors": 0}  # type: ignore[attr-defined]
     print(f"TokenSaver Gateway listening on http://{config.host}:{config.port}")
     print("Health: /health | Stats: /stats | Ctrl+C to stop")
     try:
