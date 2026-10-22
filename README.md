@@ -32,6 +32,30 @@ TokenSaver is a small, provider-neutral prompt and context optimization kit for 
 6. Never claim a token-saving percentage unless it was measured.
 7. Do not sacrifice correctness or omit safety-critical information to save tokens.
 
+## Rolling compressed memory (new in v0.2)
+
+The Python package now includes a local rolling-memory store and a request builder. It keeps durable facts in sections such as goals, rules, decisions, current state, files, and open tasks, plus a bounded window of recent turns. Before a new request, TokenSaver renders that compact memory together with the new message. It then records the user message for future context.
+
+Install locally (Python 3.10+):
+
+    python -m pip install -e .
+
+Create a memory file and store important project facts:
+
+    tokensaver memory-init .tokensaver-memory.json --project "My project"
+    tokensaver memory-add .tokensaver-memory.json GOALS "Build the requested app"
+    tokensaver memory-add .tokensaver-memory.json RULES "Keep existing tests passing"
+
+Prepare a compact prompt for the next model request:
+
+    tokensaver request .tokensaver-memory.json "Add a settings page"
+
+The command prints the compact memory plus the new message, and saves the new user turn to the rolling window. Send the printed prompt to the model instead of resending the full old transcript when your workflow lets you control request construction. After the model responds, save only a short, useful summary or durable decision with memory-add or memory-turn, not a huge raw answer.
+
+For a full walkthrough, see `examples/workflow.md`.
+
+**Important:** this is a working local memory utility, not yet an automatic plugin or network proxy for Claude Code, Codex, or Grok. It cannot replace hidden provider-managed history unless integrated with that provider's request pipeline. Compression is conservative and deterministic; it does not autonomously understand or summarize meaning. Keep critical constraints and decisions explicitly stored, and keep a separate transcript if you need a full audit trail.
+
 ## Measuring results
 
 Token counts differ by provider and tokenizer. Compare actual usage metadata when available. Otherwise, report that savings are estimated rather than measured. Input, output, cached, and reasoning tokens may be counted differently by each provider.
