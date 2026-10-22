@@ -108,7 +108,7 @@ class ProxyTests(unittest.TestCase):
         self.assertFalse(stats["compressed"])
 
     def test_summary_skips_if_fallback_line_would_be_truncated(self):
-        self.assertEqual(_select_summary_lines("x" * 80, budget=20), "")
+        self.assertEqual(_select_summary_lines("Error: " + "x" * 80, budget=20), "")
 
     def test_summary_never_truncates_important_lines_to_fit(self):
         text = "Error: " + "a" * 40 + "\nDecision: " + "b" * 40
