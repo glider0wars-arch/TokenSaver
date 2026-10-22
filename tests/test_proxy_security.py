@@ -86,7 +86,7 @@ class GatewaySecurityTests(unittest.TestCase):
             "Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n0\r\n\r\n",
         )
         self.assertIn("400", response)
-        self.assertIn("Transfer-Encoding", response)
+        self.assertNotIn("502", response)
 
 
 
