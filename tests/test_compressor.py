@@ -21,6 +21,10 @@ class CompressorTests(unittest.TestCase):
         self.assertIn("    return  1\n    return  1", result.text)
         self.assertIn("\n}\n~~~", result.text)
 
+    def test_blank_lines_inside_fences_are_preserved(self):
+        source = "~~~python\nfirst\n\n\nsecond\n~~~"
+        self.assertEqual(compress_text(source).text, source)
+
     def test_short_duplicate_code_lines_survive_outside_fence(self):
         result = compress_text("}\n}\nreturn\nreturn\nend\nend")
         self.assertEqual(result.text, "}\n}\nreturn\nreturn\nend\nend")
