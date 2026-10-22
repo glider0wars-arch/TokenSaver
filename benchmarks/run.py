@@ -12,6 +12,7 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import Any
 
 from tokensaver.compressor import estimate_tokens
@@ -32,6 +33,21 @@ def _cache_aware_cost(total_tokens: int, cached_tokens: int, *, price: float,
 
 
 def _live_usage(payload: dict[str, Any], *, url: str, key: str) -> dict[str, int] | None:
+    # Never send an API key over cleartext HTTP to a remote host. Plain HTTP is
+    # permitted only for local mock servers and local OpenAI-compatible gateways.
+    try:
+        parsed_url = urlsplit(url)
+        hostname = parsed_url.hostname
+        _ = parsed_url.port
+    except ValueError:
+        print("live request skipped: invalid API URL; no key was sent", file=sys.stderr)
+        return None
+    local_hosts = {"localhost", "127.0.0.1", "::1"}
+    if (not hostname or parsed_url.username or parsed_url.password
+            or parsed_url.scheme not in {"http", "https"}
+            or (parsed_url.scheme != "https" and hostname not in local_hosts)):
+        print("live request skipped: use HTTPS for remote APIs; no key was sent", file=sys.stderr)
+        return None
     request_payload = dict(payload)
     model = os.getenv("TOKENSAVER_LIVE_MODEL")
     if model:
@@ -52,15 +68,24 @@ def _live_usage(payload: dict[str, Any], *, url: str, key: str) -> dict[str, int
     usage = result.get("usage", {}) if isinstance(result, dict) else {}
     if not isinstance(usage, dict):
         return None
-    prompt = usage.get("prompt_tokens", usage.get("input_tokens", usage.get("input_tokens_details", {}).get("total") if isinstance(usage.get("input_tokens_details"), dict) else None))
-    output = usage.get("completion_tokens", usage.get("output_tokens"))
     details = usage.get("prompt_tokens_details", usage.get("input_tokens_details", {}))
-    cached = details.get("cached_tokens", 0) if isinstance(details, dict) else 0
-    return {
-        "input": int(prompt or 0),
-        "output": int(output or 0),
-        "cached_input": int(cached or 0),
-    }
+    if not isinstance(details, dict):
+        details = {}
+    try:
+        prompt = usage.get("prompt_tokens", usage.get("input_tokens"))
+        output = usage.get("completion_tokens", usage.get("output_tokens"))
+        cached = details.get("cached_tokens", 0)
+        cache_creation = usage.get("cache_creation_input_tokens", usage.get("cache_write_tokens",
+                         details.get("cache_write_tokens", 0)))
+        return {
+            "input": max(0, int(prompt or 0)),
+            "output": max(0, int(output or 0)),
+            "cached_input": max(0, int(cached or 0)),
+            "cache_creation_input": max(0, int(cache_creation or 0)),
+        }
+    except (TypeError, ValueError):
+        print("live response had malformed usage fields; no key was printed", file=sys.stderr)
+        return None
 
 
 def run(*, cached_ratio: float = 0.1, input_price: float = 1.0,
