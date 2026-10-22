@@ -509,6 +509,135 @@ def compact_response_input(
     return result, _stats(before, after, len(summary), True)
 
 
+
+def _payload_breakdown(path: str, payload: dict[str, Any], keep_recent: int) -> dict[str, int]:
+    """Estimate character distribution; tool output is a subset of history."""
+    result = {
+        "estimated_system_chars": 0,
+        "estimated_old_history_chars": 0,
+        "estimated_recent_chars": 0,
+        "estimated_tool_output_chars": 0,
+    }
+    if path.endswith("/messages") and isinstance(payload.get("messages"), list):
+        result["estimated_system_chars"] = len(_content_text(payload.get("system", "")))
+        messages = [m for m in payload["messages"] if isinstance(m, dict)]
+        result["estimated_old_history_chars"] = sum(
+            len(_message_text(m)) for m in messages[:-keep_recent]
+            if m.get("role") not in {"system", "developer"}
+        )
+        result["estimated_recent_chars"] = sum(
+            len(_message_text(m)) for m in messages[-keep_recent:]
+            if m.get("role") not in {"system", "developer"}
+        )
+        for message in messages:
+            if message.get("role") == "tool":
+                result["estimated_tool_output_chars"] += len(_content_text(message.get("content", "")))
+            content = message.get("content")
+            if isinstance(content, list):
+                result["estimated_tool_output_chars"] += sum(
+                    len(_content_text(block.get("content", "")))
+                    for block in content if isinstance(block, dict) and block.get("type") == "tool_result"
+                )
+    elif path.endswith("/responses") and isinstance(payload.get("input"), list):
+        items = [x for x in payload["input"] if isinstance(x, dict)]
+        result["estimated_system_chars"] = sum(
+            len(_response_item_text(x)) for x in items
+            if x.get("type", "message") == "message" and x.get("role") in {"system", "developer"}
+        )
+        conversation = [x for x in items if not (
+            x.get("type", "message") == "message" and x.get("role") in {"system", "developer"}
+        )]
+        result["estimated_old_history_chars"] = sum(len(_response_item_text(x)) for x in conversation[:-keep_recent])
+        result["estimated_recent_chars"] = sum(len(_response_item_text(x)) for x in conversation[-keep_recent:])
+        result["estimated_tool_output_chars"] = sum(
+            len(_content_text(x.get("output", ""))) for x in items if x.get("type") == "function_call_output"
+        )
+    elif isinstance(payload.get("messages"), list):
+        messages = [m for m in payload["messages"] if isinstance(m, dict)]
+        result["estimated_system_chars"] = sum(
+            len(_message_text(m)) for m in messages if m.get("role") in {"system", "developer"}
+        )
+        conversation = [m for m in messages if m.get("role") not in {"system", "developer"}]
+        result["estimated_old_history_chars"] = sum(len(_message_text(m)) for m in conversation[:-keep_recent])
+        result["estimated_recent_chars"] = sum(len(_message_text(m)) for m in conversation[-keep_recent:])
+        for message in conversation:
+            if message.get("role") == "tool":
+                result["estimated_tool_output_chars"] += len(_content_text(message.get("content", "")))
+            content = message.get("content")
+            if isinstance(content, list):
+                result["estimated_tool_output_chars"] += sum(
+                    len(_content_text(block.get("content", "")))
+                    for block in content if isinstance(block, dict) and block.get("type") == "tool_result"
+                )
+    return result
+
+
+def _normalized_usage(obj: Any) -> dict[str, int] | None:
+    if not isinstance(obj, dict):
+        return None
+    if isinstance(obj.get("response"), dict) and isinstance(obj["response"].get("usage"), dict):
+        obj = obj["response"]
+    elif isinstance(obj.get("message"), dict) and isinstance(obj["message"].get("usage"), dict):
+        obj = obj["message"]
+    usage = obj.get("usage", obj)
+    if not isinstance(usage, dict):
+        return None
+    details = usage.get("input_tokens_details") or usage.get("prompt_tokens_details") or {}
+    if not isinstance(details, dict):
+        details = {}
+    return {
+        "provider_input_tokens": int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0),
+        "provider_output_tokens": int(usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0),
+        "provider_cached_input_tokens": int(
+            usage.get("cache_read_input_tokens", usage.get("cached_input_tokens", details.get("cached_tokens", 0))) or 0
+        ),
+    }
+
+
+def _usage_from_response(raw: bytes, *, is_sse: bool) -> dict[str, int] | None:
+    candidates: list[Any] = []
+    try:
+        decoded = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    if is_sse:
+        for line in decoded.splitlines():
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            try:
+                candidates.append(json.loads(data))
+            except json.JSONDecodeError:
+                continue
+    else:
+        try:
+            candidates.append(json.loads(decoded))
+        except json.JSONDecodeError:
+            return None
+    merged = {"provider_input_tokens": 0, "provider_output_tokens": 0, "provider_cached_input_tokens": 0}
+    found = False
+    for candidate in candidates:
+        usage = _normalized_usage(candidate)
+        if usage is None:
+            continue
+        found = True
+        for key, value in usage.items():
+            if value:
+                merged[key] = value
+    return merged if found else None
+
+
+def _record_provider_usage(server: Any, usage: dict[str, int] | None) -> None:
+    if not usage:
+        return
+    with server.stats_lock:
+        for key, value in usage.items():
+            server.stats[key] = int(server.stats.get(key, 0)) + max(0, value)
+        server.stats["usage_responses"] = int(server.stats.get("usage_responses", 0)) + 1
+
+
 def transform_payload(
     path: str, payload: dict[str, Any], *, keep_recent: int = 8,
     max_summary_chars: int = 3000, min_old_chars: int = 1200,
