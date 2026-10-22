@@ -198,18 +198,18 @@ class ReviewRegressionTests(unittest.TestCase):
             b'{"usage":{"prompt_tokens":20,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":5}}}',
             "application/json",
         )
-        self.assertEqual(json_usage, {"input": 20, "output": 7, "cached_input": 5})
+        self.assertEqual(json_usage, {"input": 20, "output": 7, "cached_input": 5, "cache_creation_input": 0})
         sse = b'data: {"type":"response.completed","response":{"usage":{"input_tokens":12,"output_tokens":3,"input_tokens_details":{"cached_tokens":4}}}}\n\ndata: [DONE]\n\n'
         self.assertEqual(
             _parse_provider_usage(sse, "text/event-stream"),
-            {"input": 12, "output": 3, "cached_input": 4},
+            {"input": 12, "output": 3, "cached_input": 4, "cache_creation_input": 0},
         )
 
 
     def test_anthropic_sse_usage_merges_input_and_output_events(self):
         sse = (
             b'event: message_start\\n'
-            b'data: {"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":30}}}\\n\\n'
+            b'data: {"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":30,"cache_creation_input_tokens":10}}}\\n\\n'
             b'event: message_delta\\n'
             b'data: {"type":"message_delta","usage":{"output_tokens":9}}\\n\\n'
             b'event: message_stop\\n'
@@ -217,7 +217,7 @@ class ReviewRegressionTests(unittest.TestCase):
         )
         self.assertEqual(
             _parse_provider_usage(sse, "text/event-stream"),
-            {"input": 80, "output": 9, "cached_input": 30},
+            {"input": 120, "output": 9, "cached_input": 30, "cache_creation_input": 10},
         )
 
 
