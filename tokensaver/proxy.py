@@ -1,6 +1,7 @@
 """Local API gateway with conservative, bucketed context compaction."""
 from __future__ import annotations
 
+import copy
 import hmac
 import http.client
 import json
@@ -168,6 +169,123 @@ def _message_text(message: dict[str, Any]) -> str:
     if extras:
         body += ("\n" if body else "") + "\n".join(extras)
     return f"{role}: {body}".strip()
+
+
+
+_ANSI_ESCAPE = re.compile(r"\\x1b(?:\\[[0-?]*[ -/]*[@-~]|\\][^\\x07]*(?:\\x07|\\x1b\\\\))")
+_DEFAULT_TOOL_OUTPUT_MAX_CHARS = 4000
+_TOOL_OUTPUT_REFERENCE = "[identical tool output repeated later; see message {index}]"
+
+
+def _compress_tool_output_text(text: str, max_chars: int = _DEFAULT_TOOL_OUTPUT_MAX_CHARS,
+                               head_lines: int = 8, tail_lines: int = 8) -> str:
+    """Conservatively shrink noisy tool output while retaining important lines."""
+    cleaned = _ANSI_ESCAPE.sub("", text).replace("\\r\\n", "\\n").replace("\\r", "\\n")
+    lines = cleaned.split("\\n")
+    collapsed: list[str] = []
+    i = 0
+    while i < len(lines):
+        j = i + 1
+        while j < len(lines) and lines[j] == lines[i]:
+            j += 1
+        line = lines[i]
+        if j - i > 1 and line.strip():
+            line = f"{line} (repeated x{j - i})"
+        collapsed.append(line)
+        i = j
+    rendered = "\\n".join(collapsed)
+    if len(rendered) <= max_chars:
+        return rendered
+    keep = set(range(min(head_lines, len(collapsed))))
+    keep.update(range(max(0, len(collapsed) - tail_lines), len(collapsed)))
+    keep.update(i for i, line in enumerate(collapsed) if _IMPORTANT.search(line))
+    output: list[str] = []
+    omitted = 0
+    in_omitted = False
+    for index, line in enumerate(collapsed):
+        if index in keep:
+            if in_omitted:
+                output.append(f"[{omitted} lines omitted]")
+                omitted = 0
+                in_omitted = False
+            output.append(line)
+        else:
+            omitted += 1
+            in_omitted = True
+    if in_omitted:
+        output.append(f"[{omitted} lines omitted]")
+    result = "\\n".join(output)
+    if len(result) <= max_chars:
+        return result
+    # Important lines win over the nominal cap, so errors are never silently lost.
+    important = [line for line in collapsed if _IMPORTANT.search(line)]
+    selected = set(important)
+    selected.update(line for line in output if line.startswith("[") and "omitted]" in line)
+    budget = max(0, max_chars - sum(len(line) + 1 for line in selected) - 24)
+    for line in output:
+        if line in selected:
+            continue
+        if sum(len(x) + 1 for x in selected) < max_chars - 24 and len(line) <= budget:
+            selected.add(line)
+    return "\\n".join(line for line in output if line in selected)
+
+
+def _tool_output_slots(items: list[Any], kind: str) -> list[tuple[int, Any, str, str]]:
+    """Return message index, mutable content owner, key, and tool-output text."""
+    slots: list[tuple[int, Any, str, str]] = []
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        if kind == "chat" and item.get("role") == "tool" and isinstance(item.get("content"), str):
+            slots.append((i, item, "content", item["content"]))
+        elif kind == "responses" and item.get("type") == "function_call_output" and isinstance(item.get("output"), str):
+            slots.append((i, item, "output", item["output"]))
+        elif kind == "anthropic" and item.get("role") == "user" and isinstance(item.get("content"), list):
+            for block in item["content"]:
+                if not isinstance(block, dict) or block.get("type") != "tool_result":
+                    continue
+                if isinstance(block.get("content"), str):
+                    slots.append((i, block, "content", block["content"]))
+                elif isinstance(block.get("content"), list):
+                    for part in block["content"]:
+                        if isinstance(part, dict) and isinstance(part.get("text"), str):
+                            slots.append((i, part, "text", part["text"]))
+    return slots
+
+
+def _compress_payload_tool_outputs(items: list[Any], kind: str, max_chars: int) -> int:
+    """Compress old tool output; leave the newest tool cycle untouched by default."""
+    if max_chars < 1:
+        raise ValueError("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS must be a positive integer.")
+    protected_start = len(items)
+    if kind == "chat":
+        protected_start = next((i for i in range(len(items) - 1, -1, -1)
+                                if isinstance(items[i], dict) and items[i].get("role") == "assistant"
+                                and items[i].get("tool_calls")), len(items))
+    elif kind == "responses":
+        protected_start = next((i for i in range(len(items) - 1, -1, -1)
+                                if isinstance(items[i], dict) and items[i].get("type") == "function_call"), len(items))
+    elif kind == "anthropic":
+        protected_start = next((i for i in range(len(items) - 1, -1, -1)
+                                if isinstance(items[i], dict) and items[i].get("role") == "assistant"
+                                and isinstance(items[i].get("content"), list)
+                                and any(isinstance(b, dict) and b.get("type") == "tool_use" for b in items[i]["content"])), len(items))
+    slots = _tool_output_slots(items, kind)
+    later: dict[str, int] = {}
+    saved = 0
+    for index, owner, key, raw_text in reversed(slots):
+        cleaned = _ANSI_ESCAPE.sub("", raw_text).replace("\\r\\n", "\\n").replace("\\r", "\\n")
+        if index < protected_start:
+            if cleaned in later:
+                replacement = _TOOL_OUTPUT_REFERENCE.format(index=later[cleaned] + 1)
+            elif len(cleaned) > max_chars:
+                replacement = _compress_tool_output_text(cleaned, max_chars=max_chars)
+            else:
+                replacement = cleaned
+            owner[key] = replacement
+            saved += max(0, len(raw_text) - len(replacement))
+        later.setdefault(cleaned, index)
+    return saved
 
 
 def _contains_cache_control(value: Any) -> bool:
@@ -409,33 +527,51 @@ def transform_payload(
     """Compact supported request formats and leave unrelated payloads unchanged."""
     body = json.loads(json.dumps(payload))
     empty: dict[str, int | bool] = _stats(0, 0)
+    tool_output_max_chars = _env_int("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", 4000, minimum=1)
     if path.endswith("/chat/completions") and isinstance(body.get("messages"), list):
+        saved = _compress_payload_tool_outputs(body["messages"], "chat", tool_output_max_chars)
         body["messages"], stats = compact_chat_messages(
             body["messages"], keep_recent=keep_recent, max_summary_chars=max_summary_chars,
             min_old_chars=min_old_chars, min_total_chars=min_total_chars, cut_step=cut_step)
+        stats["tool_output_chars_saved"] = saved
+        stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
+        stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
+        if saved:
+            stats["compressed"] = True
         return body, stats
     if path.endswith("/messages") and isinstance(body.get("messages"), list):
-        original_messages = body["messages"]
+        saved = _compress_payload_tool_outputs(body["messages"], "anthropic", tool_output_max_chars)
         compacted, stats = compact_anthropic_messages(
-            original_messages, system=body.get("system"), keep_recent=keep_recent,
+            body["messages"], system=body.get("system"), keep_recent=keep_recent,
             max_summary_chars=max_summary_chars, min_old_chars=min_old_chars,
             min_total_chars=min_total_chars, cut_step=cut_step)
+        stats["tool_output_chars_saved"] = saved
+        stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
+        stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
         if not stats.get("compressed"):
+            if saved:
+                stats["compressed"] = True
             return body, stats
         body["messages"] = compacted
-        summary_text = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\n" + str(stats.pop("summary_text"))
+        summary_text = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\\n" + str(stats.pop("summary_text"))
         current_system = body.get("system", "")
         if isinstance(current_system, str):
-            body["system"] = (current_system + "\n\n" + summary_text).strip()
+            body["system"] = (current_system + "\\n\\n" + summary_text).strip()
         elif isinstance(current_system, list):
             body["system"] = current_system + [{"type": "text", "text": summary_text}]
         else:
             body["system"] = summary_text
         return body, stats
     if path.endswith("/responses") and isinstance(body.get("input"), list):
+        saved = _compress_payload_tool_outputs(body["input"], "responses", tool_output_max_chars)
         body["input"], stats = compact_response_input(
             body["input"], keep_recent=keep_recent, max_summary_chars=max_summary_chars,
             min_old_chars=min_old_chars, min_total_chars=min_total_chars, cut_step=cut_step)
+        stats["tool_output_chars_saved"] = saved
+        stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
+        stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
+        if saved:
+            stats["compressed"] = True
         return body, stats
     return body, empty
 
