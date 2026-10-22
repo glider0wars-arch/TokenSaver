@@ -66,7 +66,9 @@ def _live_usage(payload: dict[str, Any], *, url: str, key: str) -> dict[str, int
 
 
 def run(*, cached_ratio: float = 0.1, input_price: float = 1.0,
-        cacheable_fraction: float = 0.7, live: bool = False) -> tuple[str, bool]:
+        cacheable_fraction: float = 0.7, live: bool = False,
+        minimum_retention: float = 95.0, keep_recent: int = 4,
+        summary_max_chars: int = 2400) -> tuple[str, bool]:
     rows: list[dict[str, Any]] = []
     retention_failed = False
     live_url = os.getenv("TOKENSAVER_LIVE_API_URL", "").strip()
@@ -81,7 +83,7 @@ def run(*, cached_ratio: float = 0.1, input_price: float = 1.0,
         path = fixture.get("path", "/v1/chat/completions")
         before_text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
         compacted, stats = transform_payload(
-            path, payload, keep_recent=4, max_summary_chars=2400,
+            path, payload, keep_recent=keep_recent, max_summary_chars=summary_max_chars,
             min_old_chars=200, min_total_chars=500, cut_step=1,
         )
         after_text = json.dumps(compacted, ensure_ascii=False, separators=(",", ":"))
@@ -102,10 +104,14 @@ def run(*, cached_ratio: float = 0.1, input_price: float = 1.0,
             after_tokens, stable_prefix_tokens, price=input_price,
             cached_ratio=cached_ratio, cacheable_fraction=cacheable_fraction,
         )
+        # Worst-case cache miss: every compacted input token is billed at the
+        # uncached input rate because the rewritten prefix no longer matches.
+        after_cost_cache_broken = after_tokens * input_price
+        cache_break_risk = after_cost_cache_broken > before_cost
         needles = fixture.get("needles", [])
         retained = sum(1 for needle in needles if needle in after_text)
         retention = 100.0 if not needles else retained * 100.0 / len(needles)
-        if retention < 95.0:
+        if retention < minimum_retention:
             retention_failed = True
         row: dict[str, Any] = {
             "fixture": fixture.get("name", fixture_path.stem),
@@ -116,6 +122,8 @@ def run(*, cached_ratio: float = 0.1, input_price: float = 1.0,
             "saved_percent": ((before_tokens - after_tokens) / before_tokens * 100.0) if before_tokens else 0.0,
             "estimated_cost_before": before_cost,
             "estimated_cost_after": after_cost,
+            "estimated_cost_after_cache_broken": after_cost_cache_broken,
+            "cache_break_risk": cache_break_risk,
             "retention": f"{retention:.1f}%",
             "compressed": bool(stats.get("compressed")),
         }
@@ -125,13 +133,13 @@ def run(*, cached_ratio: float = 0.1, input_price: float = 1.0,
             row["live_usage"] = f"before={before_usage}; after={after_usage}"
         rows.append(row)
 
-    headers = ["Fixture", "Chars before/after", "Rough tokens before/after", "Token reduction", "Cache-aware cost before/after*", "Needle retention", "Compacted"]
+    headers = ["Fixture", "Chars before/after", "Rough tokens before/after", "Token reduction", "Cost before/after (cache-aware)*", "After if cache breaks*", "Break-even risk", "Needle retention", "Compacted"]
     lines = [
         "| " + " | ".join(headers) + " |",
         "| " + " | ".join(["---"] * len(headers)) + " |",
     ]
     for row in rows:
-        lines.append("| {fixture} | {before_chars:,} / {after_chars:,} | {before_tokens_est:,} / {after_tokens_est:,} | {saved_percent:.1f}% | {estimated_cost_before:.2f} / {estimated_cost_after:.2f} | {retention} | {compressed} |".format(**row))
+        lines.append("| {fixture} | {before_chars:,} / {after_chars:,} | {before_tokens_est:,} / {after_tokens_est:,} | {saved_percent:.1f}% | {estimated_cost_before:.6f} / {estimated_cost_after:.6f} | {estimated_cost_after_cache_broken:.6f} | {cache_break_risk} | {retention} | {compressed} |".format(**row))
     lines.extend([
         "",
         "* Cost values are illustrative input-cost units, not provider quotes. The estimate uses the configured input price and cached-input ratio; real caching depends on provider rules and exact prefix stability.",
@@ -150,12 +158,19 @@ def main() -> int:
     parser.add_argument("--cached-input-price-ratio", type=float, default=float(os.getenv("TOKENSAVER_CACHED_INPUT_PRICE_RATIO", "0.1")))
     parser.add_argument("--input-price-per-million", type=float, default=float(os.getenv("TOKENSAVER_INPUT_PRICE_PER_MILLION", "1.0")))
     parser.add_argument("--cacheable-fraction", type=float, default=float(os.getenv("TOKENSAVER_ASSUMED_CACHEABLE_FRACTION", "0.7")))
+    parser.add_argument("--minimum-retention", type=float, default=95.0)
+    parser.add_argument("--keep-recent", type=int, default=4)
+    parser.add_argument("--summary-max-chars", type=int, default=2400)
     parser.add_argument("--live", action="store_true", help="Use API credentials from environment variables; never saves keys")
     args = parser.parse_args()
     if not 0.0 <= args.cached_input_price_ratio <= 1.0:
         parser.error("--cached-input-price-ratio must be between 0 and 1")
     if args.input_price_per_million < 0:
         parser.error("--input-price-per-million must not be negative")
+    if not 0.0 <= args.minimum_retention <= 100.0:
+        parser.error("--minimum-retention must be between 0 and 100")
+    if args.keep_recent < 1 or args.summary_max_chars < 100:
+        parser.error("--keep-recent must be positive and --summary-max-chars must be at least 100")
     if not 0.0 <= args.cacheable_fraction <= 1.0:
         parser.error("--cacheable-fraction must be between 0 and 1")
     report, failed = run(
@@ -163,6 +178,9 @@ def main() -> int:
         input_price=args.input_price_per_million / 1_000_000,
         cacheable_fraction=args.cacheable_fraction,
         live=args.live,
+        minimum_retention=args.minimum_retention,
+        keep_recent=args.keep_recent,
+        summary_max_chars=args.summary_max_chars,
     )
     print(report)
     return 1 if failed else 0
