@@ -275,8 +275,9 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(raw)
+        self.close_connection = True
 
-    def _forward(self) -> None:
+    def _forward(self) -> None
         upstream_base = os.getenv("TOKENSAVER_UPSTREAM_BASE_URL", "https://api.openai.com").rstrip("/")
         parsed = urlsplit(upstream_base)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -322,6 +323,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                 headers.pop("Authorization", None)
                 headers["x-api-key"] = override_key
         headers.pop("Host", None)
+        headers_sent = False
         try:
             conn.request(self.command, target_path, body=outgoing if self.command not in {"GET", "HEAD"} else None, headers=headers)
             upstream = conn.getresponse()
@@ -334,6 +336,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                 self.send_header("Transfer-Encoding", "chunked")
             self.send_header("Connection", "close")
             self.end_headers()
+            headers_sent = True
             if has_body:
                 while True:
                     chunk = upstream.read(65536)
@@ -349,10 +352,13 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             with self.server.stats_lock:  # type: ignore[attr-defined]
                 self.server.stats["upstream_errors"] += 1  # type: ignore[attr-defined]
             # If headers already went out, the connection may no longer accept a JSON error.
-            try:
-                self._json_response(502, {"error": "Upstream request failed", "detail": str(exc)[:300]})
-            except OSError:
-                pass
+            if not headers_sent:
+                try:
+                    self._json_response(502, {"error": "Upstream request failed", "detail": str(exc)[:300]})
+                except OSError:
+                    pass
+            else:
+                self.close_connection = True
         finally:
             conn.close()
 
