@@ -100,6 +100,6 @@ def build_request(memory: RollingMemory, new_message: str) -> str:
     message = compress_text(new_message, deduplicate_lines=False).text
     parts = []
     if sections:
-        parts.append("[COMPRESSED MEMORY]\\n" + sections)
-    parts.append("[NEW MESSAGE]\\n" + message)
-    return "\\n\\n".join(parts)
+        parts.append("[COMPRESSED MEMORY]\n" + sections)
+    parts.append("[NEW MESSAGE]\n" + message)
+    return "\n\n".join(parts)
