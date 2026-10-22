@@ -23,8 +23,7 @@ _IMPORTANT = re.compile(
     r"\b(?:do not|don't|never|must not|should not|cannot|can't|remember this)\b|"
     r"(?:^|[\s:،.!؟])(?:خطا|اشکال|تصمیم|محدودیت|الزام|مهم است|فراموش نکن|انجام نشود)(?=$|[\s:،.!؟])|"
     r"\b(?:tool_use|tool_result|function_call|function_call_output)\b|"
-    r"\b(?:[A-Za-z0-9_.-]+\.(?:py|ts|tsx|js|json|yaml|yml|toml|md))\b|"
-    r"\bline\s+\d+\b|\bstatus code\s+\d{3}\b",
+    r"\bTOKENSAVER_[A-Z0-9_]+\b|\bline\s+\d+\b|\bstatus code\s+\d{3}\b",
     re.IGNORECASE,
 )
 _HOP_BY_HOP = {
