@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from collections import deque
 import hmac
 import http.client
 import json
@@ -1025,7 +1026,8 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             headers_sent = True
             if has_body:
                 tee_limit = getattr(config, "usage_tee_max_bytes", 1_000_000)
-                tee = bytearray()
+                tee_chunks: deque[bytes] = deque()
+                tee_size = 0
                 content_type = upstream.getheader("Content-Type", "")
                 while True:
                     # read1 returns available bytes without waiting to fill a 64 KiB
@@ -1034,16 +1036,25 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
                     if not chunk:
                         break
                     # Keep a bounded rolling tail so final usage events remain parseable
-                    # even when a long stream exceeds the cap.
-                    tee.extend(chunk)
-                    if len(tee) > tee_limit:
-                        del tee[:len(tee) - tee_limit]
+                    # even when a long stream exceeds the cap, without repeatedly shifting
+                    # a large bytearray for every incoming chunk.
+                    tee_chunks.append(chunk)
+                    tee_size += len(chunk)
+                    while tee_size > tee_limit and tee_chunks:
+                        excess = tee_size - tee_limit
+                        first = tee_chunks[0]
+                        if excess >= len(first):
+                            tee_chunks.popleft()
+                            tee_size -= len(first)
+                        else:
+                            tee_chunks[0] = first[excess:]
+                            tee_size -= excess
                     self.wfile.write(f"{len(chunk):X}\r\n".encode("ascii"))
                     self.wfile.write(chunk + b"\r\n")
                     self.wfile.flush()
                 self.wfile.write(b"0\r\n\r\n")
                 if "json" in content_type.lower() or "text/event-stream" in content_type.lower():
-                    usage = _parse_provider_usage(bytes(tee), content_type)
+                    usage = _parse_provider_usage(b''.join(tee_chunks), content_type)
                     if usage is None:
                         with self.server.stats_lock:  # type: ignore[attr-defined]
                             self.server.stats["provider_usage_parse_errors"] = self.server.stats.get("provider_usage_parse_errors", 0) + 1  # type: ignore[attr-defined]
