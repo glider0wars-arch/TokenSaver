@@ -6,6 +6,9 @@ from tokensaver.compressor import compress_text
 from tokensaver.memory import RollingMemory
 from tokensaver.proxy import (
     _content_text,
+    _compress_tool_output_text,
+    _compress_payload_tool_outputs,
+    _parse_provider_usage,
     compact_anthropic_messages,
     compact_chat_messages,
     compact_response_input,
@@ -149,6 +152,57 @@ class ReviewRegressionTests(unittest.TestCase):
         memory.add_turn("user", "z" * 30)
         self.assertTrue(memory.recent_turns)
         self.assertIn("task that should remain if turns can be evicted", memory.sections["OPEN_TASKS"])
+
+
+    def test_tool_output_compression_keeps_errors_and_handles_windows_newlines(self):
+        repeated = "ordinary repeated log line" + "\\r\\n"
+        source = "\\x1b[31mSTART\\x1b[0m\\r\\n" + repeated * 25 + "ERROR: exact failure detail\\r\\nخطا: جزئیات مهم\\r\\nTAIL"
+        result = _compress_tool_output_text(source, max_chars=100, head_lines=2, tail_lines=2)
+        self.assertNotIn("\\x1b[", result)
+        self.assertIn("repeated x25", result)
+        self.assertIn("ERROR: exact failure detail", result)
+        self.assertIn("خطا: جزئیات مهم", result)
+        self.assertIn("omitted]", result)
+
+    def test_tool_output_compression_protects_latest_tool_cycle(self):
+        old_output = "old noisy output\\n" * 200
+        latest_output = "latest tool output must remain unchanged\\n" * 150
+        messages = [
+            {"role": "user", "content": "old request"},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "old-call", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "old-call", "content": old_output},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "new-call", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "new-call", "content": latest_output},
+        ]
+        saved = _compress_payload_tool_outputs(messages, "chat", 100)
+        self.assertGreater(saved, 0)
+        self.assertLess(len(messages[2]["content"]), len(old_output))
+        self.assertEqual(messages[4]["content"], latest_output)
+
+    def test_duplicate_earlier_tool_output_becomes_reference(self):
+        same = "line one\\nline two"
+        messages = [
+            {"role": "tool", "tool_call_id": "first", "content": same},
+            {"role": "assistant", "content": "between"},
+            {"role": "tool", "tool_call_id": "second", "content": same},
+        ]
+        _compress_payload_tool_outputs(messages, "chat", 100)
+        self.assertIn("identical tool output repeated later", messages[0]["content"])
+        self.assertEqual(messages[2]["content"], same)
+
+    def test_provider_usage_parses_json_and_sse(self):
+        json_usage = _parse_provider_usage(
+            b'{"usage":{"prompt_tokens":20,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":5}}}',
+            "application/json",
+        )
+        self.assertEqual(json_usage, {"input": 20, "output": 7, "cached_input": 5})
+        sse = b'data: {"type":"response.completed","response":{"usage":{"input_tokens":12,"output_tokens":3,"input_tokens_details":{"cached_tokens":4}}}}\\n\\ndata: [DONE]\\n\\n'
+        self.assertEqual(
+            _parse_provider_usage(sse, "text/event-stream"),
+            {"input": 12, "output": 3, "cached_input": 4},
+        )
 
 
 if __name__ == "__main__":
