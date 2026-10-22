@@ -511,10 +511,17 @@ def compact_anthropic_messages(
     summary = _select_summary_lines(old_text, max_summary_chars)
     if not summary:
         return messages, _stats(total, total)
-    after = len(_content_text(system)) + len(summary) + sum(len(_message_text(m)) for m in recent)
+    summary_note = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\\n" + summary
+    if isinstance(system, str):
+        merged_system = (system + "\\n\\n" + summary_note).strip()
+    elif isinstance(system, list):
+        merged_system = _content_text(system + [{"type": "text", "text": summary_note}])
+    else:
+        merged_system = summary_note
+    after = len(merged_system) + sum(len(_message_text(m)) for m in recent)
     if after >= total:
         return messages, _stats(total, total)
-    # Preserve the original content-block structures for all retained messages.
+    # Preserve original content-block structures for all retained messages.
     return recent, _stats(total, after, len(summary), True) | {"summary_text": summary}
 
 
