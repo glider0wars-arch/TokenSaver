@@ -35,7 +35,8 @@ class _StreamingConnection:
         self.response = response
 
     def request(self, *args, **kwargs):
-        return None
+        self.request_args = args
+        self.request_kwargs = kwargs
 
     def getresponse(self):
         return self.response
@@ -84,6 +85,44 @@ class StreamingProxyTests(unittest.TestCase):
         self.assertIn(b"data: first event", output)
         self.assertIn(b"data: [DONE]", output)
         self.assertEqual(response.read_calls, 0)
+
+    def test_options_request_body_is_forwarded_upstream(self):
+        response = _StreamingResponse()
+        connection = _StreamingConnection(response)
+        config = SimpleNamespace(
+            max_body_bytes=1024,
+            upstream_base_url="http://127.0.0.1:9999",
+            upstream_timeout=1,
+            upstream_api_key="",
+            allow_remote=False,
+            gateway_token="",
+        )
+        server = SimpleNamespace(
+            gateway_config=config,
+            stats_lock=threading.Lock(),
+            stats={
+                "requests": 0, "compressed_requests": 0, "chars_saved": 0,
+                "upstream_errors": 0, "transform_errors": 0,
+            },
+        )
+        handler = object.__new__(TokenSaverProxyHandler)
+        handler._request_config = config
+        handler._request_content_length = 3
+        handler.command = "OPTIONS"
+        handler.path = "/v1/options"
+        handler.headers = Message()
+        handler.server = server
+        handler.rfile = io.BytesIO(b"abc")
+        handler.wfile = io.BytesIO()
+        handler.close_connection = False
+        handler.send_response = lambda *args, **kwargs: None
+        handler.send_header = lambda *args, **kwargs: None
+        handler.end_headers = lambda *args, **kwargs: None
+
+        with patch("tokensaver.proxy.http.client.HTTPConnection", return_value=connection):
+            handler._forward()
+
+        self.assertEqual(connection.request_kwargs["body"], b"abc")
 
 
 if __name__ == "__main__":
