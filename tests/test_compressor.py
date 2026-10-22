@@ -27,7 +27,7 @@ class CompressorTests(unittest.TestCase):
 
     def test_short_duplicate_code_lines_survive_outside_fence(self):
         result = compress_text("}\n}\nreturn\nreturn\nend")
-        self.assertEqual(result.text, "}\n}\nreturn\nreturn\nend\nend")
+        self.assertEqual(result.text, "}\n}\nreturn\nreturn\nend")
 
     def test_duplicate_lines_inside_fences_survive(self):
         result = compress_text("~~~\nlong repeated source line that is longer than twenty chars\nlong repeated source line that is longer than twenty chars\n~~~")
