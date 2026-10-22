@@ -19,6 +19,20 @@ class BenchmarkTests(unittest.TestCase):
         self.assertIn("mixed-persian-english", report)
 
 
+    def test_benchmark_rejects_invalid_cost_and_retention_parameters(self):
+        invalid_options = [
+            {"cached_ratio": -0.1},
+            {"cached_ratio": 1.1},
+            {"input_price": -1.0},
+            {"cacheable_fraction": 1.1},
+            {"minimum_retention": 101.0},
+            {"keep_recent": 0},
+            {"summary_max_chars": 10},
+        ]
+        for options in invalid_options:
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                run(**options)
+
     def test_live_mode_refuses_to_send_api_key_over_remote_http(self):
         with patch("benchmarks.run.urllib.request.urlopen") as urlopen:
             usage = _live_usage(
