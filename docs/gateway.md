@@ -64,7 +64,9 @@ Codex authentication and supported provider configuration depend on the product/
 ## Compaction behavior
 
 - System/developer instructions are retained.
-- The most recent messages are preserved, configurable with `TOKENSAVER_KEEP_RECENT_MESSAGES` (default 8).
+- The most recent messages are preserved, configurable with `TOKENSAVER_KEEP_RECENT_MESSAGES` (default 8). The cut is bucketed by `TOKENSAVER_CUT_STEP` (default 4) to keep the compacted prefix stable across consecutive turns within the same bucket.
+- Compaction only runs when the full request exceeds `TOKENSAVER_MIN_TOTAL_CHARS` (default 5000) and the older portion exceeds `TOKENSAVER_MIN_OLD_CHARS` (default 1200).
+- Requests with cache-control markers in the system or candidate old prefix are passed through unchanged to avoid disrupting provider prompt caching.
 - Old history is converted into a deterministic extractive note that favors errors, decisions, constraints, file paths, TODOs, and important lines.
 - If the history is short or the compacted request would not be smaller, the original request is forwarded.
 - Tool outputs in the retained recent window are not rewritten. Older tool history may be summarized.
@@ -77,5 +79,6 @@ This is intentionally safer and less aggressive than learned token-pruning metho
 - The server binds to loopback by default.
 - Remote binding is refused unless `TOKENSAVER_ALLOW_REMOTE=1`; do not enable it on a public interface without an authenticated TLS reverse proxy.
 - Do not log request bodies or API keys. Access logging is off by default.
+- Every environment setting is validated at startup with a clear error. Remote mode requires `TOKENSAVER_GATEWAY_TOKEN` and authenticates every endpoint, including `/health` and `/stats`.
 - Use only trusted local clients. Other processes running as your user may be able to access the local port.
 - The proxy forwards requests to the configured upstream. Choose the upstream deliberately and avoid sending secrets you would not send directly to that provider.
