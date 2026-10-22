@@ -160,7 +160,7 @@ class ProxyTests(unittest.TestCase):
             "cached_input": 30,
         })
         sse = (b'data: {"type":"response.completed","response":{"usage":{"input_tokens":11,"output_tokens":4,'
-               b'"input_tokens_details":{"cached_tokens":3}}}\n\n')
+               b'"input_tokens_details":{"cached_tokens":3}}}}\n\n')
         usage = _parse_provider_usage(sse, "text/event-stream")
         self.assertEqual(usage, {
             "input": 11,
