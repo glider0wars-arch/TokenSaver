@@ -643,7 +643,9 @@ def _payload_breakdown(path: str, payload: dict[str, Any], keep_recent: int) -> 
     elif path.endswith("/responses") and isinstance(payload.get("input"), list):
         static = [m for m in payload["input"] if isinstance(m, dict) and m.get("type", "message") == "message" and m.get("role") in {"system", "developer"}]
         conv = [m for m in payload["input"] if isinstance(m, dict) and m not in static]
-        out["system"] = "\n".join(_response_item_text(m) for m in static)
+        instruction_text = _content_text(payload.get("instructions", ""))
+        static_text = "\n".join(_response_item_text(m) for m in static)
+        out["system"] = "\n".join(part for part in (instruction_text, static_text) if part)
         out["old_history"] = "\n".join(_response_item_text(m) for m in conv[:-keep_recent])
         out["recent_turns"] = "\n".join(_response_item_text(m) for m in conv[-keep_recent:])
         out["tool_outputs"] = "\n".join(_content_text(m.get("output", "")) for m in conv if m.get("type") == "function_call_output")
