@@ -1,88 +1,60 @@
 {
-  "name": "coding-agent-long-tool-logs",
+  "name": "claude-code-realistic-tool-log",
   "path": "/v1/chat/completions",
   "payload": {
     "model": "benchmark-model",
     "messages": [
       {
         "role": "system",
-        "content": "You are a coding agent. Follow project constraints exactly and report uncertainty."
+        "content": "You are a coding agent. Preserve exact failures, user constraints, and tool-call pairing."
       },
       {
         "role": "user",
-        "content": "Constraint: never commit to main. Preserve tool-call pairing and run the full test suite. Decision: keep Python 3.10 compatibility and standard-library-only runtime dependencies."
+        "content": "Do not alter cache-marked payloads. Keep environment settings fixed for the lifetime of the gateway. Fix the stream usage parser and run regression tests."
       },
       {
         "role": "assistant",
         "content": null,
         "tool_calls": [
           {
-            "id": "call-read-1",
+            "id": "call-pytest-17",
             "type": "function",
             "function": {
-              "name": "read_file",
-              "arguments": "{\"path\":\"tokensaver/proxy.py\"}"
+              "name": "run_tests",
+              "arguments": "{\"command\":\"python -m unittest discover -s tests -v\"}"
             }
           }
         ]
       },
       {
         "role": "tool",
-        "tool_call_id": "call-read-1",
-        "content": "INFO worker 0: scanned cache bucket; request_id=req-1000\nINFO worker 1: scanned cache bucket; request_id=req-1001\nINFO worker 2: scanned cache bucket; request_id=req-1002\nINFO worker 3: scanned cache bucket; request_id=req-1003\nINFO worker 4: scanned cache bucket; request_id=req-1004\nINFO worker 5: scanned cache bucket; request_id=req-1005\nINFO worker 6: scanned cache bucket; request_id=req-1006\nINFO worker 7: scanned cache bucket; request_id=req-1007\nINFO worker 0: scanned cache bucket; request_id=req-1008\nINFO worker 1: scanned cache bucket; request_id=req-1009\nINFO worker 2: scanned cache bucket; request_id=req-1010\nINFO worker 3: scanned cache bucket; request_id=req-1011\nINFO worker 4: scanned cache bucket; request_id=req-1012\nINFO worker 5: scanned cache bucket; request_id=req-1013\nINFO worker 6: scanned cache bucket; request_id=req-1014\nINFO worker 7: scanned cache bucket; request_id=req-1015\nINFO worker 0: scanned cache bucket; request_id=req-1016\nINFO worker 1: scanned cache bucket; request_id=req-1017\nINFO worker 2: scanned cache bucket; request_id=req-1018\nINFO worker 3: scanned cache bucket; request_id=req-1019\nINFO worker 4: scanned cache bucket; request_id=req-1020\nINFO worker 5: scanned cache bucket; request_id=req-1021\nINFO worker 6: scanned cache bucket; request_id=req-1022\nINFO worker 7: scanned cache bucket; request_id=req-1023\nINFO worker 0: scanned cache bucket; request_id=req-1024\nINFO worker 1: scanned cache bucket; request_id=req-1025\nINFO worker 2: scanned cache bucket; request_id=req-1026\nINFO worker 3: scanned cache bucket; request_id=req-1027\nINFO worker 4: scanned cache bucket; request_id=req-1028\nINFO worker 5: scanned cache bucket; request_id=req-1029\nINFO worker 6: scanned cache bucket; request_id=req-1030\nINFO worker 7: scanned cache bucket; request_id=req-1031\nINFO worker 0: scanned cache bucket; request_id=req-1032\nINFO worker 1: scanned cache bucket; request_id=req-1033\nINFO worker 2: scanned cache bucket; request_id=req-1034\nINFO worker 3: scanned cache bucket; request_id=req-1035\nINFO worker 4: scanned cache bucket; request_id=req-1036\nINFO worker 5: scanned cache bucket; request_id=req-1037\nINFO worker 6: scanned cache bucket; request_id=req-1038\nINFO worker 7: scanned cache bucket; request_id=req-1039\nINFO worker 0: scanned cache bucket; request_id=req-1040\nINFO worker 1: scanned cache bucket; request_id=req-1041\nINFO worker 2: scanned cache bucket; request_id=req-1042\nINFO worker 3: scanned cache bucket; request_id=req-1043\nINFO worker 4: scanned cache bucket; request_id=req-1044\nINFO worker 5: scanned cache bucket; request_id=req-1045\nINFO worker 6: scanned cache bucket; request_id=req-1046\nINFO worker 7: scanned cache bucket; request_id=req-1047\nINFO worker 0: scanned cache bucket; request_id=req-1048\nINFO worker 1: scanned cache bucket; request_id=req-1049\nINFO worker 2: scanned cache bucket; request_id=req-1050\nINFO worker 3: scanned cache bucket; request_id=req-1051\nINFO worker 4: scanned cache bucket; request_id=req-1052\nINFO worker 5: scanned cache bucket; request_id=req-1053\nINFO worker 6: scanned cache bucket; request_id=req-1054\nINFO worker 7: scanned cache bucket; request_id=req-1055\nINFO worker 0: scanned cache bucket; request_id=req-1056\nINFO worker 1: scanned cache bucket; request_id=req-1057\nINFO worker 2: scanned cache bucket; request_id=req-1058\nINFO worker 3: scanned cache bucket; request_id=req-1059\nINFO worker 4: scanned cache bucket; request_id=req-1060\nINFO worker 5: scanned cache bucket; request_id=req-1061\nINFO worker 6: scanned cache bucket; request_id=req-1062\nINFO worker 7: scanned cache bucket; request_id=req-1063\nINFO worker 0: scanned cache bucket; request_id=req-1064\nINFO worker 1: scanned cache bucket; request_id=req-1065\nINFO worker 2: scanned cache bucket; request_id=req-1066\nINFO worker 3: scanned cache bucket; request_id=req-1067\nINFO worker 4: scanned cache bucket; request_id=req-1068\nINFO worker 5: scanned cache bucket; request_id=req-1069\nTraceback (most recent call last):\n  File \"tokensaver/proxy.py\", line 214, in _forward\nValueError: invalid config at proxy.py line 214\nError: upstream returned status code 502\nDecision: preserve tool-call pairing\nConstraint: never commit to main"
+        "tool_call_id": "call-pytest-17",
+        "content": "tokensaver/proxy.py:276: tool_output_max_chars = _env_int(\"TOKENSAVER_TOOL_OUTPUT_MAX_CHARS\", 4000, minimum=1)\ntokensaver/proxy.py:611: saved = _compress_payload_tool_outputs(body[\"messages\"], \"chat\", tool_output_max_chars)\ntests/test_proxy.py::ProxyTests::test_cache_control_preserves_payload PASSED\ntests/test_proxy.py::ProxyTests::test_duplicate_short_tool_output_is_preserved PASSED\ntests/test_proxy_streaming.py::StreamingTests::test_usage_event_after_large_stream FAILED\nTraceback (most recent call last):\n  File \"tests/test_proxy_streaming.py\", line 184, in test_usage_event_after_large_stream\n    self.assertEqual(stats[\"provider_output_tokens\"], 37)\nAssertionError: 0 != 37\nFAILED tests/test_proxy_streaming.py::StreamingTests::test_usage_event_after_large_stream - AssertionError\npytest summary: 1 failed, 55 passed in 0.82s\ngit diff --check: no whitespace errors\ngit status --short: M tokensaver/proxy.py M tests/test_proxy_streaming.py\ngrep -R \"TOKENSAVER_USAGE_TEE_MAX_BYTES\" -n tokensaver tests\ntokensaver/proxy.py:1021: tee_limit = config.usage_tee_max_bytes\nUpstream SSE event: event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":37}}\nImportant invariant: cache_control blocks must not be rewritten.\nObserved request size: 1,482,019 bytes; stream response size: 1,760,221 bytes.\nDuplicate tool output sample: ok\nDuplicate tool output sample: ok\nCommand exited with status 1"
       },
       {
         "role": "assistant",
-        "content": "Decision: fix the cut logic without changing the public API."
+        "content": "The failure is isolated to parsing usage metadata after the response stream exceeds the current tee limit. I will retain a bounded rolling tail."
       },
       {
         "role": "user",
-        "content": "Constraint: keep exact error messages and paths. The failing file is tokensaver/proxy.py."
+        "content": "Keep this regression: the final Anthropic message_delta usage event must be counted after a response larger than one megabyte."
       },
       {
         "role": "assistant",
-        "content": "The current hypothesis is that a tool output became detached from its call."
+        "content": "I will add a realistic fixture based on pytest, grep, and SSE output, and verify the retention benchmark rather than trusting the old needles."
       },
       {
         "role": "user",
-        "content": "Check the tests and preserve this path: tests/test_proxy.py"
-      },
-      {
-        "role": "assistant",
-        "content": "The next step is a focused regression test, then the full matrix."
-      },
-      {
-        "role": "user",
-        "content": "Remember: no new runtime dependencies and no secrets in logs."
-      },
-      {
-        "role": "assistant",
-        "content": "The tool log contains repeated informational lines, but the traceback and error are important."
-      },
-      {
-        "role": "user",
-        "content": "Current task: repair the tool alignment bug and keep Windows support."
-      },
-      {
-        "role": "assistant",
-        "content": "I will retain the exact exception and the file path in the handoff."
-      },
-      {
-        "role": "user",
-        "content": "Final constraint: do not claim savings until measured."
-      },
-      {
-        "role": "assistant",
-        "content": "Understood. I will compare the original and compacted request."
+        "content": "Acceptance criteria: cache_control payload unchanged; short repeated outputs remain intact; no quadratic rendering; malformed configuration fails at startup."
       }
     ]
   },
   "needles": [
-    "Constraint: never commit to main",
-    "Decision: keep Python 3.10 compatibility",
-    "tokensaver/proxy.py",
-    "ValueError: invalid config at proxy.py line 214",
-    "status code 502",
-    "tests/test_proxy.py"
+    "AssertionError: 0 != 37",
+    "FAILED tests/test_proxy_streaming.py::StreamingTests::test_usage_event_after_large_stream",
+    "TOKENSAVER_USAGE_TEE_MAX_BYTES",
+    "1,760,221 bytes",
+    "cache_control blocks must not be rewritten",
+    "malformed configuration fails at startup"
   ]
 }
