@@ -277,7 +277,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
         self.close_connection = True
 
-    def _forward(self) -> None
+    def _forward(self) -> None:
         upstream_base = os.getenv("TOKENSAVER_UPSTREAM_BASE_URL", "https://api.openai.com").rstrip("/")
         parsed = urlsplit(upstream_base)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
