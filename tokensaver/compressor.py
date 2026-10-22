@@ -64,8 +64,8 @@ def _looks_like_code(line: str) -> bool:
     if not stripped:
         return False
     return bool(re.match(
-        r"^(?:[#@]|//|/\\*|\\*|\\}|\\]|\\)|(?:async\\s+)?(?:def|class|return|yield|import|from|if|elif|else|for|while|try|except|finally|with|const|let|var|function|export|public|private|SELECT|INSERT|UPDATE|DELETE)\\b)|"
-        r"(?:=>|->|::|:=|==|!=|<=|>=|&&|\\|\\||[{}\\[\\]();=<>])",
+        r"^(?:[#@]|//|/\*|\*|\}|\]|\)|(?:async\s+)?(?:def|class|return|yield|import|from|if|elif|else|for|while|try|except|finally|with|const|let|var|function|export|public|private|SELECT|INSERT|UPDATE|DELETE)\b)|"
+        r"(?:=>|->|::|:=|==|!=|<=|>=|&&|\|\||[{}\[\]();=<>])",
         stripped,
         re.IGNORECASE,
     ))
@@ -79,12 +79,12 @@ def compress_text(text: str, *, deduplicate_lines: bool = True) -> CompressionRe
     Fenced code and blank-line structure inside fences are preserved.
     """
     original = text
-    normalized = text.replace("\\r\\n", "\\n").replace("\\r", "\\n")
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
     output: list[str] = []
     in_fence = False
     fence_char = ""
     fence_len = 0
-    for line in normalized.split("\\n"):
+    for line in normalized.split("\n"):
         match = _FENCE.match(line)
         if match:
             marker = match.group(1)
@@ -101,7 +101,7 @@ def compress_text(text: str, *, deduplicate_lines: bool = True) -> CompressionRe
             if output and output[-1] != "":
                 output.append("")
             continue
-        indented = line.startswith((" ", "\\t"))
+        indented = line.startswith((" ", "\t"))
         code_like = _looks_like_code(line)
         if not indented and not code_like:
             line = _SPACES.sub(" ", line.rstrip())
@@ -111,7 +111,7 @@ def compress_text(text: str, *, deduplicate_lines: bool = True) -> CompressionRe
     if not in_fence:
         while output and output[-1] == "":
             output.pop()
-    result_text = "\\n".join(output)
+    result_text = "\n".join(output)
     return CompressionResult(
         original_chars=len(original),
         compressed_chars=len(result_text),
