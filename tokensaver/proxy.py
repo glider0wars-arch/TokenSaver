@@ -631,11 +631,21 @@ def transform_payload(
 
 
 def _payload_breakdown(path: str, payload: dict[str, Any], keep_recent: int) -> dict[str, str]:
-    """Return categorized request text for rough estimates, never provider-measured counts."""
+    """Return categorized request text for rough estimates, preserving message order."""
     out = {"system": "", "old_history": "", "recent_turns": "", "tool_outputs": ""}
     if path.endswith("/chat/completions") and isinstance(payload.get("messages"), list):
-        static = [m for m in payload["messages"] if isinstance(m, dict) and m.get("role") in {"system", "developer"}]
-        conv = [m for m in payload["messages"] if isinstance(m, dict) and m.get("role") not in {"system", "developer"}]
+        items = payload["messages"]
+        static: list[dict[str, Any]] = []
+        conv: list[dict[str, Any]] = []
+        seen = False
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if not seen and item.get("role") in {"system", "developer"}:
+                static.append(item)
+            else:
+                seen = True
+                conv.append(item)
         out["system"] = "\n".join(_message_text(m) for m in static)
         out["old_history"] = "\n".join(_message_text(m) for m in conv[:-keep_recent])
         out["recent_turns"] = "\n".join(_message_text(m) for m in conv[-keep_recent:])
@@ -645,18 +655,32 @@ def _payload_breakdown(path: str, payload: dict[str, Any], keep_recent: int) -> 
         out["system"] = _content_text(payload.get("system", ""))
         out["old_history"] = "\n".join(_message_text(m) for m in conv[:-keep_recent])
         out["recent_turns"] = "\n".join(_message_text(m) for m in conv[-keep_recent:])
-        out["tool_outputs"] = "\n".join(_content_text(block.get("content", "")) for m in conv
+        out["tool_outputs"] = "\n".join(
+            _content_text(block.get("content", "")) for m in conv
             for block in (m.get("content", []) if isinstance(m.get("content"), list) else [])
-            if isinstance(block, dict) and block.get("type") == "tool_result")
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+        )
     elif path.endswith("/responses") and isinstance(payload.get("input"), list):
-        static = [m for m in payload["input"] if isinstance(m, dict) and m.get("type", "message") == "message" and m.get("role") in {"system", "developer"}]
-        conv = [m for m in payload["input"] if isinstance(m, dict) and m not in static]
+        static: list[dict[str, Any]] = []
+        conv: list[dict[str, Any]] = []
+        seen = False
+        for item in payload["input"]:
+            if not isinstance(item, dict):
+                continue
+            if (not seen and item.get("type", "message") == "message"
+                    and item.get("role") in {"system", "developer"}):
+                static.append(item)
+            else:
+                seen = True
+                conv.append(item)
         instruction_text = _content_text(payload.get("instructions", ""))
         static_text = "\n".join(_response_item_text(m) for m in static)
         out["system"] = "\n".join(part for part in (instruction_text, static_text) if part)
         out["old_history"] = "\n".join(_response_item_text(m) for m in conv[:-keep_recent])
         out["recent_turns"] = "\n".join(_response_item_text(m) for m in conv[-keep_recent:])
-        out["tool_outputs"] = "\n".join(_content_text(m.get("output", "")) for m in conv if m.get("type") == "function_call_output")
+        out["tool_outputs"] = "\n".join(
+            _content_text(m.get("output", "")) for m in conv if m.get("type") == "function_call_output"
+        )
     return out
 
 
@@ -690,6 +714,13 @@ def _usage_from_object(value: Any) -> dict[str, int] | None:
                     max(0, int(v or 0)) for v in write_details.values()
                     if isinstance(v, (int, float, str))
                 ))
+        creation_details = usage.get("cache_creation", {})
+        if isinstance(creation_details, dict):
+            creation_total = sum(
+                max(0, int(creation_details.get(key, 0) or 0))
+                for key in ("ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens")
+            )
+            cache_creation = max(cache_creation, creation_total)
         raw_input = max(0, int(usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0))
         # Anthropic reports cache reads/writes separately from the uncached input count.
         if "cache_read_input_tokens" in usage or "cache_creation_input_tokens" in usage:
