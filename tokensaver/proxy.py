@@ -253,8 +253,21 @@ def _tool_output_slots(items: list[Any], kind: str) -> list[tuple[int, Any, str,
     return slots
 
 
-def _compress_payload_tool_outputs(items: list[Any], kind: str, max_chars: int) -> int:
-    """Compress old tool output; leave the newest tool cycle untouched by default."""
+def _compress_payload_tool_outputs(items: list[Any] | str, kind: str | dict[str, Any],
+                                 max_chars: int | None = None) -> int:
+    """Compress tool outputs; accepts either (items, kind, max_chars) or (path, payload)."""
+    if isinstance(items, str) and isinstance(kind, dict):
+        path, payload = items, kind
+        if path.endswith("/responses"):
+            items, kind = payload.get("input", []), "responses"
+        elif path.endswith("/messages"):
+            items, kind = payload.get("messages", []), "anthropic"
+        else:
+            items, kind = payload.get("messages", []), "chat"
+    if max_chars is None:
+        max_chars = _env_int("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", 4000, minimum=1)
+    if not isinstance(items, list) or not isinstance(kind, str):
+        raise ValueError("Expected a list of request items and a supported tool-output kind.")
     if max_chars < 1:
         raise ValueError("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS must be a positive integer.")
     protected_start = len(items)
@@ -669,6 +682,25 @@ def _parse_provider_usage(raw: bytes, content_type: str) -> dict[str, int] | Non
         return _usage_from_object(json.loads(text_value))
     except json.JSONDecodeError:
         return None
+
+
+def _compress_output_text(text: str, max_chars: int = 4000, *,
+                         head_lines: int = 8, tail_lines: int = 8) -> str:
+    """Compatibility-named wrapper for the conservative tool-output compressor."""
+    return _compress_tool_output_text(text, max_chars=max_chars,
+                                      head_lines=head_lines, tail_lines=tail_lines)
+
+
+def _usage_from_response(raw: bytes, *, is_sse: bool = False) -> dict[str, int] | None:
+    """Return normalized provider usage fields for tests and integrations."""
+    usage = _parse_provider_usage(raw, "text/event-stream" if is_sse else "application/json")
+    if usage is None:
+        return None
+    return {
+        "provider_input_tokens": usage["input"],
+        "provider_output_tokens": usage["output"],
+        "provider_cached_input_tokens": usage["cached_input"],
+    }
 
 
 def _record_provider_usage(server: Any, usage: dict[str, int] | None) -> None:
