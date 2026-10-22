@@ -156,7 +156,8 @@ class ReviewRegressionTests(unittest.TestCase):
 
     def test_tool_output_compression_keeps_errors_and_handles_windows_newlines(self):
         repeated = "ordinary repeated log line" + "\r\n"
-        source = "\x1b[31mSTART\x1b[0m\r\n" + repeated * 25 + "ERROR: exact failure detail\r\nخطا: جزئیات مهم\r\nTAIL"
+        noise = "".join("ordinary filler text " + chr(65 + (i % 26)) + chr(65 + (i // 26)) + "\r\n" for i in range(40))
+        source = "\x1b[31mSTART\x1b[0m\r\n" + repeated * 25 + noise + "ERROR: exact failure detail\r\nخطا: جزئیات مهم\r\nTAIL"
         result = _compress_tool_output_text(source, max_chars=100, head_lines=2, tail_lines=2)
         self.assertNotIn("\x1b[", result)
         self.assertIn("repeated x25", result)
