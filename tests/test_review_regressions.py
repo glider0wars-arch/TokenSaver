@@ -102,5 +102,54 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertLessEqual(len(memory.recent_turns[-1]["content"]), 2000)
 
 
+    def test_anthropic_cut_landing_on_tool_use_moves_past_complete_cycle(self):
+        messages = [
+            {"role": "user", "content": "old context " * 100},
+            {"role": "assistant", "content": [{"type": "tool_use", "id": "tool-1", "name": "read", "input": {}}]},
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tool-1", "content": "result " * 20}]},
+            {"role": "user", "content": "recent question " * 100},
+            {"role": "assistant", "content": "recent answer " * 100},
+        ]
+        compacted, stats = compact_anthropic_messages(
+            messages, keep_recent=4, cut_step=1, min_total_chars=1,
+            min_old_chars=1, max_summary_chars=500,
+        )
+        self.assertTrue(stats["compressed"])
+        retained = json.dumps(compacted, ensure_ascii=False)
+        self.assertNotIn('"tool_use_id": "tool-1"', retained)
+        self.assertNotIn('"id": "tool-1"', retained)
+        self.assertEqual(compacted[0]["role"], "user")
+
+    def test_chat_cut_with_consecutive_tool_replies_moves_to_owner(self):
+        messages = [
+            {"role": "user", "content": "old context " * 100},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "call-1", "type": "function", "function": {"name": "one", "arguments": "{}"}},
+                {"id": "call-2", "type": "function", "function": {"name": "two", "arguments": "{}"}},
+            ]},
+            {"role": "tool", "tool_call_id": "call-1", "content": "first output " * 20},
+            {"role": "tool", "tool_call_id": "call-2", "content": "second output " * 20},
+            {"role": "user", "content": "recent question " * 100},
+            {"role": "assistant", "content": "recent answer " * 100},
+        ]
+        for keep in (2, 3, 4, 5):
+            compacted, stats = compact_chat_messages(
+                messages, keep_recent=keep, cut_step=1, min_total_chars=1,
+                min_old_chars=1, max_summary_chars=500,
+            )
+            if stats["compressed"]:
+                first = next((m for m in compacted if m.get("role") not in {"system", "developer"}), {})
+                self.assertNotEqual(first.get("role"), "tool")
+
+    def test_memory_eviction_prefers_turns_before_open_tasks(self):
+        memory = RollingMemory(max_total_chars=100, max_recent_turns=5)
+        memory.add("OPEN_TASKS", "task that should remain if turns can be evicted")
+        memory.add_turn("user", "x" * 30)
+        memory.add_turn("assistant", "y" * 30)
+        memory.add_turn("user", "z" * 30)
+        self.assertTrue(memory.recent_turns)
+        self.assertIn("task that should remain if turns can be evicted", memory.sections["OPEN_TASKS"])
+
+
 if __name__ == "__main__":
     unittest.main()
