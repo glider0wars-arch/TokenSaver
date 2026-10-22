@@ -77,22 +77,12 @@ Token counts differ by provider and tokenizer. Compare actual usage metadata whe
 
 ## License
 
-No license has been added yet. Until one is added, normal copyright restrictions apply.
+This project is licensed under the MIT License. See [`LICENSE`](LICENSE) for the full terms.
 
 
 ## Results
 
-The following table is the output of `python -m benchmarks.run` on code revision `fc24df5f7b1587ac96b760764bd845480392b358`. It replays the three checked-in fixtures. Counts are estimates, and cost values are illustrative input-cost units, not provider quotes.
-
-| Fixture | Chars before/after | Rough tokens before/after | Token reduction | Cost before/after (cache-aware)* | After if cache breaks* | Break-even risk | Needle retention |
-| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: |
-| coding-agent-long-tool-logs | 6,005 / 1,673 | 1,502 / 419 | 72.1% | 0.000556 / 0.000392 | 0.000419 | False | 100.0% |
-| long-chat | 18,913 / 4,152 | 4,729 / 1,038 | 78.1% | 0.001750 / 0.001010 | 0.001038 | False | 100.0% |
-| mixed-persian-english | 10,252 / 3,801 | 2,896 / 1,118 | 61.4% | 0.001072 / 0.001080 | 0.001118 | True | 100.0% |
-
-* Benchmark assumptions: input price 1 illustrative unit per million estimated tokens, cached-input price ratio 0.1, and 70% assumed cacheability before compaction. The "After if cache breaks" column is a worst-case estimate that bills the compacted input at the uncached rate. This simplified model does **not** price cache creation/writes, provider-specific cache breakpoints, or output tokens. Real provider cache behavior and pricing can differ. The benchmark fails if needle retention drops below 95%.
-
-Run `python -m benchmarks.run` to regenerate the Markdown table for the current revision. Token counts are estimates unless optional live mode reports provider-returned usage. The retention check is a useful regression signal, not proof that answer quality is unchanged.
+The benchmark table is generated from the current checked-in fixtures by `python -m benchmarks.run`. Do not treat previously copied numbers as current results. The fixtures include realistic pytest failures, grep output, git checks, SSE usage events, and Persian/English debugging context. Token counts are estimates; retention is a regression signal, not proof that answer quality is unchanged.
 
 ## Lessons from related tools and provider docs
 
