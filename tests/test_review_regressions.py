@@ -183,6 +183,27 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertLess(len(messages[2]["content"]), len(old_output))
         self.assertEqual(messages[4]["content"], latest_output)
 
+    def test_tool_output_compression_skips_cache_controlled_context(self):
+        from tokensaver.proxy import _compress_payload_tool_outputs
+
+        messages = [
+            {"role": "system", "content": [
+                {"type": "text", "text": "stable system prefix", "cache_control": {"type": "ephemeral"}}
+            ]},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "old-call", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+            ]},
+            {"role": "tool", "tool_call_id": "old-call", "content": "repeated output\n" * 100},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "new-call", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+            ]},
+            {"role": "tool", "tool_call_id": "new-call", "content": "new output"},
+        ]
+        before = json.dumps(messages, ensure_ascii=False)
+        saved = _compress_payload_tool_outputs(messages, "chat", 20)
+        self.assertEqual(saved, 0)
+        self.assertEqual(json.dumps(messages, ensure_ascii=False), before)
+
     def test_duplicate_earlier_tool_output_becomes_reference(self):
         same = "line one\nline two"
         messages = [
