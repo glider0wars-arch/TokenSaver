@@ -89,8 +89,8 @@ class StreamingProxyTests(unittest.TestCase):
 
     def test_final_usage_event_is_parsed_after_stream_exceeds_tee_limit(self):
         response = _StreamingResponse()
-        response.chunks = [b"data: " + (b"x" * 1_100_000) + b"\\n\\n",
-                           b'data: {"type":"message_delta","usage":{"output_tokens":37}}\\n\\n']
+        response.chunks = [b"data: " + (b"x" * 1_100_000) + b"\n\n",
+                           b'data: {"type":"message_delta","usage":{"output_tokens":37}}\n\n']
         connection = _StreamingConnection(response)
         config = SimpleNamespace(
             max_body_bytes=1024,
