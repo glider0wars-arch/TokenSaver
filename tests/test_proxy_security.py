@@ -101,6 +101,18 @@ class GatewaySecurityTests(unittest.TestCase):
             400, {"error": "Multiple Content-Length headers are not supported."}
         )
 
+    def test_tool_compression_and_usage_buffer_settings_are_validated_at_startup(self):
+        for name, value in (
+            ("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", "many"),
+            ("TOKENSAVER_USAGE_TEE_MAX_BYTES", "tiny"),
+        ):
+            with self.subTest(name=name), patch.dict(os.environ, {
+                name: value,
+                "TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com",
+            }, clear=True):
+                with self.assertRaisesRegex(ValueError, name):
+                    load_config()
+
     def test_all_numeric_settings_are_validated_at_startup(self):
         with patch.dict(os.environ, {
             "TOKENSAVER_CUT_STEP": "many",
