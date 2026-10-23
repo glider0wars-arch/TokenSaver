@@ -166,5 +166,55 @@ class StreamingProxyTests(unittest.TestCase):
         self.assertEqual(connection.request_kwargs["body"], b"abc")
 
 
+    def test_client_disconnect_closes_upstream_connection(self):
+        class _DisconnectingWriter:
+            def write(self, _data):
+                raise BrokenPipeError("simulated client disconnect")
+
+            def flush(self):
+                return None
+
+        response = _StreamingResponse()
+        connection = _StreamingConnection(response)
+        connection.closed = False
+        def close_connection():
+            connection.closed = True
+        connection.close = close_connection
+        config = SimpleNamespace(
+            max_body_bytes=1024,
+            upstream_base_url="http://127.0.0.1:9999",
+            upstream_timeout=1,
+            upstream_api_key="",
+            allow_remote=False,
+            gateway_token="",
+        )
+        server = SimpleNamespace(
+            gateway_config=config,
+            stats_lock=threading.Lock(),
+            stats={
+                "requests": 0, "compressed_requests": 0, "chars_saved": 0,
+                "upstream_errors": 0, "transform_errors": 0,
+            },
+        )
+        handler = object.__new__(TokenSaverProxyHandler)
+        handler._request_config = config
+        handler._request_content_length = 0
+        handler.command = "GET"
+        handler.path = "/v1/models"
+        handler.headers = Message()
+        handler.server = server
+        handler.wfile = _DisconnectingWriter()
+        handler.close_connection = False
+        handler.send_response = lambda *args, **kwargs: None
+        handler.send_header = lambda *args, **kwargs: None
+        handler.end_headers = lambda *args, **kwargs: None
+
+        with patch("tokensaver.proxy.http.client.HTTPConnection", return_value=connection):
+            handler._forward()
+
+        self.assertTrue(connection.closed)
+        self.assertTrue(handler.close_connection)
+
+
 if __name__ == "__main__":
     unittest.main()
