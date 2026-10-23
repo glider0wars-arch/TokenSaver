@@ -306,13 +306,24 @@ def _compress_payload_tool_outputs(items: list[Any] | str, kind: str | dict[str,
                                 and isinstance(items[i].get("content"), list)
                                 and any(isinstance(b, dict) and b.get("type") == "tool_use" for b in items[i]["content"])), len(items))
     slots = _tool_output_slots(items, kind)
+    # A cache breakpoint protects the prefix up to and including its containing
+    # item. Never mutate tool output at/before the last breakpoint. Later output
+    # may be compacted, while history compaction has its own stricter cache guard.
+    cache_boundary = max(
+        (i for i, item in enumerate(items) if isinstance(item, dict) and _contains_cache_control(item)),
+        default=-1,
+    )
     # Only reference output in the protected latest cycle, which survives compaction.
     later: set[str] = set()
-    for index, _owner, _key, raw_text in slots:
-        if index >= protected_start:
+    for index, owner, _key, raw_text in slots:
+        if index >= protected_start and index > cache_boundary and not _contains_cache_control(owner):
             later.add(_ANSI_ESCAPE.sub("", raw_text).replace("\r\n", "\n").replace("\r", "\n"))
     saved = 0
     for index, owner, key, raw_text in slots:
+        # If the owner has its own breakpoint, preserve it even when the parent
+        # item would otherwise be considered post-boundary.
+        if index <= cache_boundary or _contains_cache_control(owner):
+            continue
         cleaned = _ANSI_ESCAPE.sub("", raw_text).replace("\r\n", "\n").replace("\r", "\n")
         if index < protected_start:
             if cleaned in later and len(cleaned.strip()) >= 80:
@@ -623,27 +634,42 @@ def transform_payload(
     empty: dict[str, int | bool] = _stats(0, 0)
     if tool_output_max_chars is None:
         tool_output_max_chars = _DEFAULT_TOOL_OUTPUT_MAX_CHARS
-    # Do not mutate any cache-marked payload: edits may invalidate provider caches.
-    if _contains_cache_control(body):
-        return body, empty
+    # Preserve cache-marked prefixes, but allow safe tool-output compaction after
+    # a breakpoint. Conversation compaction remains separately cache-conservative.
+    has_cache_control = _contains_cache_control(body)
+    empty["cache_control_present"] = has_cache_control
+    empty["cache_protected_tool_outputs"] = 0
     if path.endswith("/chat/completions") and isinstance(body.get("messages"), list):
+        original_messages = body["messages"]
         saved = _compress_payload_tool_outputs(body["messages"], "chat", tool_output_max_chars)
         body["messages"], stats = compact_chat_messages(
             body["messages"], keep_recent=keep_recent, max_summary_chars=max_summary_chars,
             min_old_chars=min_old_chars, min_total_chars=min_total_chars, cut_step=cut_step)
         stats["tool_output_chars_saved"] = saved
+        stats["cache_control_present"] = has_cache_control
+        stats["cache_protected_tool_outputs"] = sum(
+            1 for i, item in enumerate(original_messages)
+            if isinstance(item, dict) and _contains_cache_control(item)
+            and (item.get("role") == "tool" or item.get("type") == "function_call_output")
+        )
         stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
         stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
         if saved:
             stats["compressed"] = True
         return body, stats
     if path.endswith("/messages") and isinstance(body.get("messages"), list):
+        original_messages = body["messages"]
         saved = _compress_payload_tool_outputs(body["messages"], "anthropic", tool_output_max_chars)
         compacted, stats = compact_anthropic_messages(
             body["messages"], system=body.get("system"), keep_recent=keep_recent,
             max_summary_chars=max_summary_chars, min_old_chars=min_old_chars,
             min_total_chars=min_total_chars, cut_step=cut_step)
         stats["tool_output_chars_saved"] = saved
+        stats["cache_control_present"] = has_cache_control
+        stats["cache_protected_tool_outputs"] = sum(
+            1 for item in original_messages if isinstance(item, dict)
+            and _contains_cache_control(item) and item.get("role") == "user"
+        )
         stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
         stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
         if not stats.get("compressed"):
@@ -661,11 +687,17 @@ def transform_payload(
             body["system"] = summary_text
         return body, stats
     if path.endswith("/responses") and isinstance(body.get("input"), list):
+        original_input = body["input"]
         saved = _compress_payload_tool_outputs(body["input"], "responses", tool_output_max_chars)
         body["input"], stats = compact_response_input(
             body["input"], keep_recent=keep_recent, max_summary_chars=max_summary_chars,
             min_old_chars=min_old_chars, min_total_chars=min_total_chars, cut_step=cut_step)
         stats["tool_output_chars_saved"] = saved
+        stats["cache_control_present"] = has_cache_control
+        stats["cache_protected_tool_outputs"] = sum(
+            1 for item in original_input if isinstance(item, dict)
+            and _contains_cache_control(item) and item.get("type") == "function_call_output"
+        )
         stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
         stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
         if saved:
