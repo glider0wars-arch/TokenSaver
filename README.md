@@ -87,13 +87,13 @@ Toknix now includes a local proxy that compacts older conversation history **bef
 Run it with Python 3.10+:
 
     python -m pip install -e .
-    TOKENSAVER_UPSTREAM_BASE_URL=https://api.openai.com python -m toknix.cli serve
+    TOKNIX_UPSTREAM_BASE_URL=https://api.openai.com python -m toknix.cli serve
 
 By default, it listens only on `127.0.0.1:8765`. Check `http://127.0.0.1:8765/health` and `/stats`. Set the upstream origin to `https://api.x.ai` for Grok API or `https://api.anthropic.com` for Anthropic API. Compaction is controlled by `TOKNIX_MIN_TOTAL_CHARS` (default 5000) and `TOKNIX_CUT_STEP` (default 4); cache-marked prefixes remain unchanged; eligible tool outputs after a cache breakpoint may be compacted. Configuration and integration examples are in `docs/gateway.md` and `.env.example`. Design trade-offs from related projects are documented in `docs/research-notes.md`.
 
 The gateway does not call a second model to summarize old messages, so it adds no extra model call for compression. It recomputes the extractive note from the transcript supplied by the client on each request; the separate CLI memory file is available for durable project facts. Its extractive compaction is conservative, but can still lose nuance; check the results with your own tasks. Token counts are rough estimates, not provider-reported measurements.
 
-**Billing and access:** the gateway only affects requests routed through it. API-key traffic is billed by the upstream API provider. It does not intercept hidden traffic from the Claude, ChatGPT, Grok websites/apps, and it does not convert subscription usage into API credits or bypass quotas. The gateway binds locally by default; remote mode requires `TOKENSAVER_GATEWAY_TOKEN` on every endpoint and should only be used behind authenticated TLS. Configuration is validated at startup.
+**Billing and access:** the gateway only affects requests routed through it. API-key traffic is billed by the upstream API provider. It does not intercept hidden traffic from the Claude, ChatGPT, Grok websites/apps, and it does not convert subscription usage into API credits or bypass quotas. The gateway binds locally by default; remote mode requires `TOKNIX_GATEWAY_TOKEN` on every endpoint and should only be used behind authenticated TLS. Configuration is validated at startup.
 
 ## Measuring results
 
