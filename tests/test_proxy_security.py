@@ -48,8 +48,8 @@ class GatewaySecurityTests(unittest.TestCase):
         })
         response = self.request(
             server,
-            "GET /health HTTP/1.1\\r\\nHost: localhost\\r\\n"
-            "X-Toknix-Token: new-brand-token\\r\\nConnection: close\\r\\n\\r\\n",
+            "GET /health HTTP/1.1\r\nHost: localhost\r\n"
+            "X-Toknix-Token: new-brand-token\r\nConnection: close\r\n\r\n",
         )
         self.assertIn("200", response)
 
