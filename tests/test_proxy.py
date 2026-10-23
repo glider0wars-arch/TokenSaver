@@ -391,7 +391,7 @@ class ProxyTests(unittest.TestCase):
             "max_tokens": 100,
         }
         passthrough, passthrough_stats = transform_payload(
-            "/v1/chat/completions", anthropic_payload,
+            "/v1/unknown", anthropic_payload,
             min_total_chars=1, min_old_chars=1,
         )
         self.assertEqual(passthrough, anthropic_payload)
