@@ -24,11 +24,11 @@ The gateway listens on `127.0.0.1:8765` by default. Check it with:
 
 Set the upstream origin for one gateway instance:
 
-- OpenAI API: `TOKENSAVER_UPSTREAM_BASE_URL=https://api.openai.com`
-- xAI/Grok API: `TOKENSAVER_UPSTREAM_BASE_URL=https://api.x.ai`
-- Anthropic API: `TOKENSAVER_UPSTREAM_BASE_URL=https://api.anthropic.com`
+- OpenAI API: `TOKNIX_UPSTREAM_BASE_URL=https://api.openai.com`
+- xAI/Grok API: `TOKNIX_UPSTREAM_BASE_URL=https://api.x.ai`
+- Anthropic API: `TOKNIX_UPSTREAM_BASE_URL=https://api.anthropic.com`
 
-If your client already sends a valid provider API key, the proxy forwards its authorization headers. Alternatively set `TOKENSAVER_UPSTREAM_API_KEY` in the server process environment to override the upstream key. Never commit real API keys.
+If your client already sends a valid provider API key, the proxy forwards its authorization headers. Alternatively set `TOKNIX_UPSTREAM_API_KEY` in the server process environment to override the upstream key. Never commit real API keys.
 
 ### OpenAI-compatible Python client example
 
@@ -51,7 +51,7 @@ For Grok, the OpenAI-compatible client can use the local base URL while Toknix's
 
 ### Claude Code / Anthropic API
 
-Start Toknix with `TOKENSAVER_UPSTREAM_BASE_URL=https://api.anthropic.com`. In the Claude Code shell, configure the supported custom API base URL for your installed version to `http://127.0.0.1:8765`, then launch Claude Code. Use an Anthropic API credential for API-based routing. Claude Code authentication modes and custom-base-URL behavior vary by version, so verify the current Anthropic documentation before changing your normal setup.
+Start Toknix with `TOKNIX_UPSTREAM_BASE_URL=https://api.anthropic.com`. In the Claude Code shell, configure the supported custom API base URL for your installed version to `http://127.0.0.1:8765`, then launch Claude Code. Use an Anthropic API credential for API-based routing. Claude Code authentication modes and custom-base-URL behavior vary by version, so verify the current Anthropic documentation before changing your normal setup.
 
 **Subscription caveat:** routing through the Anthropic API uses API billing; it does not turn a Claude Pro/Max subscription into API credits. Likewise, this gateway does not intercept hidden traffic from the Claude, ChatGPT, or Grok websites/apps.
 
@@ -64,8 +64,8 @@ Codex authentication and supported provider configuration depend on the product/
 ## Compaction behavior
 
 - System/developer instructions are retained.
-- The most recent messages are preserved, configurable with `TOKENSAVER_KEEP_RECENT_MESSAGES` (default 8). The cut is bucketed by `TOKENSAVER_CUT_STEP` (default 4) to keep the compacted prefix stable across consecutive turns within the same bucket.
-- Compaction only runs when the full request exceeds `TOKENSAVER_MIN_TOTAL_CHARS` (default 5000) and the older portion exceeds `TOKENSAVER_MIN_OLD_CHARS` (default 1200).
+- The most recent messages are preserved, configurable with `TOKNIX_KEEP_RECENT_MESSAGES` (default 8). The cut is bucketed by `TOKNIX_CUT_STEP` (default 4) to keep the compacted prefix stable across consecutive turns within the same bucket.
+- Compaction only runs when the full request exceeds `TOKNIX_MIN_TOTAL_CHARS` (default 5000) and the older portion exceeds `TOKNIX_MIN_OLD_CHARS` (default 1200).
 - History compaction is skipped when cache-control markers appear in the static system/instructions or the candidate old-history prefix, avoiding edits that could invalidate cache reuse. Tool-output compaction is handled separately: output at or before a cache breakpoint is preserved, while eligible older tool output after that breakpoint may be compacted. The latest tool cycle remains protected.
 - Old history is converted into a deterministic extractive note that favors errors, decisions, constraints, file paths, TODOs, and important lines.
 - If the history is short or the compacted request would not be smaller, the original request is forwarded.
@@ -77,8 +77,8 @@ This is intentionally safer and less aggressive than learned token-pruning metho
 ## Security
 
 - The server binds to loopback by default.
-- Remote binding is refused unless `TOKENSAVER_ALLOW_REMOTE=1`; do not enable it on a public interface without an authenticated TLS reverse proxy.
+- Remote binding is refused unless `TOKNIX_ALLOW_REMOTE=1`; do not enable it on a public interface without an authenticated TLS reverse proxy.
 - Do not log request bodies or API keys. Access logging is off by default.
-- Every environment setting is validated at startup with a clear error. Remote mode requires `TOKENSAVER_GATEWAY_TOKEN` and authenticates every endpoint, including `/health` and `/stats`.
+- Every environment setting is validated at startup with a clear error. Remote mode requires `TOKNIX_GATEWAY_TOKEN` and authenticates every endpoint, including `/health` and `/stats`.
 - Use only trusted local clients. Other processes running as your user may be able to access the local port.
 - The proxy forwards requests to the configured upstream. Choose the upstream deliberately and avoid sending secrets you would not send directly to that provider.
