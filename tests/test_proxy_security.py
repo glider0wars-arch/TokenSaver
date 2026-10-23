@@ -106,7 +106,7 @@ class GatewaySecurityTests(unittest.TestCase):
             "TOKENSAVER_CUT_STEP": "many",
             "TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com",
         }, clear=True):
-            with self.assertRaisesRegex(ValueError, "TOKENSAVER_CUT_STEP must be an integer"):
+            with self.assertRaisesRegex(ValueError, "TOKNIX_CUT_STEP must be an integer"):
                 load_config()
 
 
@@ -123,13 +123,13 @@ class GatewaySecurityTests(unittest.TestCase):
             "TOKENSAVER_TOOL_OUTPUT_MAX_CHARS": "many",
             "TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com",
         }, clear=True):
-            with self.assertRaisesRegex(ValueError, "TOKENSAVER_TOOL_OUTPUT_MAX_CHARS must be an integer"):
+            with self.assertRaisesRegex(ValueError, "TOKNIX_TOOL_OUTPUT_MAX_CHARS must be an integer"):
                 load_config()
         with patch.dict(os.environ, {
             "TOKENSAVER_USAGE_TEE_MAX_BYTES": "1",
             "TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com",
         }, clear=True):
-            with self.assertRaisesRegex(ValueError, "TOKENSAVER_USAGE_TEE_MAX_BYTES must be 1024"):
+            with self.assertRaisesRegex(ValueError, "TOKNIX_USAGE_TEE_MAX_BYTES must be 1024"):
                 load_config()
 
     def test_new_limits_are_snapshotted_in_gateway_config(self):
@@ -147,7 +147,7 @@ class GatewaySecurityTests(unittest.TestCase):
             "TOKENSAVER_ALLOW_REMOTE": "1",
             "TOKENSAVER_UPSTREAM_BASE_URL": "https://api.openai.com",
         }, clear=True):
-            with self.assertRaisesRegex(ValueError, "TOKENSAVER_GATEWAY_TOKEN is required"):
+            with self.assertRaisesRegex(ValueError, "TOKNIX_GATEWAY_TOKEN is required"):
                 load_config()
 
 
