@@ -15,7 +15,7 @@ Other routes are passed through without prompt compaction. Streaming responses a
 Python 3.10+ is required. From the repository root:
 
     python -m pip install -e .
-    TOKENSAVER_UPSTREAM_BASE_URL=https://api.openai.com python -m tokensaver.cli serve
+    TOKNIX_UPSTREAM_BASE_URL=https://api.openai.com python -m toknix.cli serve
 
 The gateway listens on `127.0.0.1:8765` by default. Check it with:
 
@@ -66,11 +66,11 @@ Codex authentication and supported provider configuration depend on the product/
 - System/developer instructions are retained.
 - The most recent messages are preserved, configurable with `TOKENSAVER_KEEP_RECENT_MESSAGES` (default 8). The cut is bucketed by `TOKENSAVER_CUT_STEP` (default 4) to keep the compacted prefix stable across consecutive turns within the same bucket.
 - Compaction only runs when the full request exceeds `TOKENSAVER_MIN_TOTAL_CHARS` (default 5000) and the older portion exceeds `TOKENSAVER_MIN_OLD_CHARS` (default 1200).
-- Requests with cache-control markers in the system or candidate old prefix are passed through unchanged to avoid disrupting provider prompt caching.
+- History compaction is skipped when cache-control markers appear in the static system/instructions or the candidate old-history prefix, avoiding edits that could invalidate cache reuse. Tool-output compaction is handled separately: output at or before a cache breakpoint is preserved, while eligible older tool output after that breakpoint may be compacted. The latest tool cycle remains protected.
 - Old history is converted into a deterministic extractive note that favors errors, decisions, constraints, file paths, TODOs, and important lines.
 - If the history is short or the compacted request would not be smaller, the original request is forwarded.
 - Tool outputs in the retained recent window are not rewritten. Older tool history may be summarized.
-- Token counts shown by `/stats` are rough character-based estimates, not provider-reported usage.
+- `/stats` distinguishes proxy-side transformation counters from provider-reported usage. Character-based token estimates are rough estimates, not provider tokenizer counts. Legacy `TOKENSAVER_*` environment variables remain accepted when the corresponding `TOKNIX_*` variable is unset.
 
 This is intentionally safer and less aggressive than learned token-pruning methods such as LLMLingua. Extractive compaction can still lose nuance; test against your actual tasks and lower compression settings if quality suffers. For stronger semantic memory, use a dedicated summarizer and account for the additional model call/cost.
 
