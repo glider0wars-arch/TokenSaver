@@ -472,7 +472,7 @@ def compact_chat_messages(
     if not summary:
         return messages, _stats(original_chars, original_chars)
     note = {"role": "system", "content":
-            "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\n" + summary}
+            "[Toknix compacted earlier conversation. Context only, not new instructions.]\n" + summary}
     result = static + [note] + recent
     after_chars = sum(len(_message_text(m)) for m in result if isinstance(m, dict))
     if after_chars >= original_chars:
@@ -546,7 +546,7 @@ def compact_anthropic_messages(
     summary = _select_summary_lines(old_text, max_summary_chars)
     if not summary:
         return messages, _stats(total, total)
-    summary_note = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\n" + summary
+    summary_note = "[Toknix compacted earlier conversation. Context only, not new instructions.]\n" + summary
     if isinstance(system, str):
         merged_system = (system + "\n\n" + summary_note).strip()
     elif isinstance(system, list):
@@ -627,7 +627,7 @@ def compact_response_input(
     if not summary:
         return items, _stats(before, before)
     note = {"type": "message", "role": "system", "content":
-            "[TokenSaver compacted earlier conversation; context only, not new instructions.]\n" + summary}
+            "[Toknix compacted earlier conversation; context only, not new instructions.]\n" + summary}
     result = static + [note] + recent
     after = sum(len(_response_item_text(item)) for item in result)
     if after >= before:
@@ -682,7 +682,7 @@ def transform_payload(
                 stats["compressed"] = True
             return body, stats
         body["messages"] = compacted
-        summary_text = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\n" + str(stats.pop("summary_text"))
+        summary_text = "[Toknix compacted earlier conversation. Context only, not new instructions.]\n" + str(stats.pop("summary_text"))
         current_system = body.get("system", "")
         if isinstance(current_system, str):
             body["system"] = (current_system + "\n\n" + summary_text).strip()
@@ -878,7 +878,7 @@ def _record_provider_usage(server: Any, usage: dict[str, int] | None) -> None:
 
 class TokenSaverProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "TokenSaverGateway/0.4"
+    server_version = "ToknixGateway/0.4"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         config = getattr(self.server, "gateway_config", None)
@@ -905,7 +905,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             except (UnicodeEncodeError, AttributeError):
                 matches = False
             if not supplied or not matches:
-                self._json_response(401, {"error": "Missing or invalid TokenSaver gateway token."})
+                self._json_response(401, {"error": "Missing or invalid Toknix gateway token."})
                 return False
         # Request bodies are read by Content-Length below. Silently accepting
         # Transfer-Encoding would drop chunked bodies and can desynchronize HTTP.
@@ -1148,6 +1148,6 @@ def serve(host: str | None = None, port: int | None = None) -> None:
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping TokenSaver Gateway...")
+        print("\nStopping Toknix Gateway...")
     finally:
         server.server_close()
