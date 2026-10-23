@@ -348,5 +348,55 @@ class ProxyTests(unittest.TestCase):
                 self.assertFalse(stats["compressed"])
 
 
+    def test_compaction_preserves_provider_parameters_and_does_not_cross_convert_apis(self):
+        from tokensaver.proxy import transform_payload
+
+        tools = [{
+            "type": "function",
+            "function": {
+                "name": "lookup",
+                "description": "Look up a record",
+                "parameters": {"type": "object", "properties": {"id": {"type": "string"}}},
+            },
+        }]
+        response_format = {"type": "json_schema", "json_schema": {
+            "name": "record", "strict": True,
+            "schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}},
+        }}
+        payload = {
+            "model": "provider-model",
+            "tools": tools,
+            "tool_choice": "auto",
+            "response_format": response_format,
+            "temperature": 0,
+            "messages": [
+                {"role": "user", "content": "Old project details " * 200},
+                {"role": "assistant", "content": "Earlier answer " * 200},
+                {"role": "user", "content": "Latest question"},
+            ],
+        }
+        transformed, stats = transform_payload(
+            "/v1/chat/completions", payload, keep_recent=1,
+            min_total_chars=1, min_old_chars=1, max_summary_chars=500,
+        )
+        self.assertTrue(stats["compressed"])
+        for key in ("model", "tools", "tool_choice", "response_format", "temperature"):
+            self.assertEqual(transformed[key], payload[key], key)
+
+        # A gateway pointed at an Anthropic upstream is not an API-format adapter.
+        # Unsupported routes and payload shapes must be forwarded unchanged.
+        anthropic_payload = {
+            "model": "claude-test",
+            "messages": [{"role": "user", "content": "Keep this unchanged"}],
+            "max_tokens": 100,
+        }
+        passthrough, passthrough_stats = transform_payload(
+            "/v1/chat/completions", anthropic_payload,
+            min_total_chars=1, min_old_chars=1,
+        )
+        self.assertEqual(passthrough, anthropic_payload)
+        self.assertFalse(passthrough_stats["compressed"])
+
+
 if __name__ == "__main__":
     unittest.main()
