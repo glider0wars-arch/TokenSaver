@@ -17,7 +17,7 @@ Toknix is a small, provider-neutral prompt and context optimization kit for Clau
 
 ## Quick start
 
-1. Open `SKILL.md` and copy its instructions into the AI tool you use, or install the Claude Code version from `.claude/skills/token-saver/SKILL.md`.
+1. Open `SKILL.md` and copy its instructions into the AI tool you use, or install the Claude Code skill from `.claude/skills/toknix/SKILL.md`.
 2. For Codex, use `AGENTS.md` as project guidance or paste the core rules into your task instructions.
 3. For Grok, use `providers/grok.md` to copy the compact system prompt.
 4. Give the agent a task and ask it to return only the required output, with assumptions and blockers called out.
@@ -44,7 +44,7 @@ toknix request .toknix-memory.json "Review the architecture in depth" --style de
 - These are preferences, not hard caps. They must never override the user's request, remove required work, or replace actual security permissions.
 - The prompt builder preserves the new message's whitespace and code exactly. The added preference itself costs a small number of extra prompt tokens, so measure net results rather than assuming every request gets cheaper.
 
-The existing local gateway also has conservative context compaction, tool-output trimming, cache-marker protection, and provider usage reporting. These features only affect traffic routed through the gateway; they do not intercept hidden history inside hosted chat apps.
+The local gateway has conservative history compaction, cache-boundary-aware tool-output trimming, and provider usage reporting. The old `tokensaver` Python module and `TOKENSAVER_*` environment variables remain supported for backwards compatibility. These features only affect traffic routed through the gateway; they do not intercept hidden history inside hosted chat apps.
 
 ## Core rules
 
@@ -87,9 +87,9 @@ Toknix now includes a local proxy that compacts older conversation history **bef
 Run it with Python 3.10+:
 
     python -m pip install -e .
-    TOKENSAVER_UPSTREAM_BASE_URL=https://api.openai.com python -m tokensaver.cli serve
+    TOKENSAVER_UPSTREAM_BASE_URL=https://api.openai.com python -m toknix.cli serve
 
-By default, it listens only on `127.0.0.1:8765`. Check `http://127.0.0.1:8765/health` and `/stats`. Set the upstream origin to `https://api.x.ai` for Grok API or `https://api.anthropic.com` for Anthropic API. Compaction is controlled by `TOKENSAVER_MIN_TOTAL_CHARS` (default 5000) and `TOKENSAVER_CUT_STEP` (default 4); cache-marked prefixes remain unchanged; eligible tool outputs after a cache breakpoint may be compacted. Configuration and integration examples are in `docs/gateway.md` and `.env.example`. Design trade-offs from related projects are documented in `docs/research-notes.md`.
+By default, it listens only on `127.0.0.1:8765`. Check `http://127.0.0.1:8765/health` and `/stats`. Set the upstream origin to `https://api.x.ai` for Grok API or `https://api.anthropic.com` for Anthropic API. Compaction is controlled by `TOKNIX_MIN_TOTAL_CHARS` (default 5000) and `TOKNIX_CUT_STEP` (default 4); cache-marked prefixes remain unchanged; eligible tool outputs after a cache breakpoint may be compacted. Configuration and integration examples are in `docs/gateway.md` and `.env.example`. Design trade-offs from related projects are documented in `docs/research-notes.md`.
 
 The gateway does not call a second model to summarize old messages, so it adds no extra model call for compression. It recomputes the extractive note from the transcript supplied by the client on each request; the separate CLI memory file is available for durable project facts. Its extractive compaction is conservative, but can still lose nuance; check the results with your own tasks. Token counts are rough estimates, not provider-reported measurements.
 
@@ -110,7 +110,7 @@ The benchmark table is generated from the current checked-in fixtures by `python
 
 ## Lessons from related tools and provider docs
 
-- **Keep the reusable prefix stable.** [OpenAI's prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching) explains that rewriting earlier context can invalidate cache reuse. Toknix therefore avoids compaction when explicit cache-control markers are present and reports cache reads separately from estimated savings.
+- **Keep the reusable prefix stable.** [OpenAI's prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching) explains that rewriting earlier context can invalidate cache reuse. Toknix preserves cache-marked prefixes during history compaction, while eligible tool outputs after a cache breakpoint may still be compacted. The gateway reports provider-reported cache usage separately from estimated savings.
 - **Track reads and writes, not just total input.** [Anthropic's caching guide](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) separates uncached input, cache reads, and cache creation. The gateway now normalizes those values for JSON and streaming responses, while clearly labeling them as provider-reported usage.
 - **Compression quality needs more than a token count.** [Microsoft's LLMLingua research](https://www.microsoft.com/en-us/research/project/llmlingua/llmlingua/) explores model-based token-level compression and task-level evaluations. Toknix deliberately keeps a dependency-free, readable, conservative approach, but its needle-retention benchmark is only a regression guard. A future quality claim needs paired answer-quality evaluations against an uncompressed baseline.
 
