@@ -5,19 +5,19 @@ Toknix stores project facts locally and renders a compact handoff for the next r
 ## Example
 
     python -m pip install -e .
-    tokensaver memory-init .tokensaver-memory.json --project "Achaemenid strategy game"
-    tokensaver memory-add .tokensaver-memory.json GOALS "Build a 3D strategy game set in the Achaemenid era"
-    tokensaver memory-add .tokensaver-memory.json RULES "Keep existing tests passing"
-    tokensaver memory-add .tokensaver-memory.json DECISIONS "Keep economy, army, diplomacy, and trade as separate systems"
+    toknix memory-init .toknix-memory.json --project "Achaemenid strategy game"
+    toknix memory-add .toknix-memory.json GOALS "Build a 3D strategy game set in the Achaemenid era"
+    toknix memory-add .toknix-memory.json RULES "Keep existing tests passing"
+    toknix memory-add .toknix-memory.json DECISIONS "Keep economy, army, diplomacy, and trade as separate systems"
 
 For each new user message, prepare the model input with:
 
-    tokensaver request .tokensaver-memory.json "Design trade between states"
+    toknix request .toknix-memory.json "Design trade between states"
 
 The command prints the compact memory plus the new message, then records the new user message in the bounded recent-turn window. Send that printed prompt to your model if your client lets you control the request. After the model responds, store only a concise summary or durable decisions, for example:
 
-    tokensaver memory-add .tokensaver-memory.json DECISIONS "Trade routes need security and tariffs"
-    tokensaver memory-turn .tokensaver-memory.json assistant "Outlined route security, tariffs, and trade agreements"
+    toknix memory-add .toknix-memory.json DECISIONS "Trade routes need security and tariffs"
+    toknix memory-turn .toknix-memory.json assistant "Outlined route security, tariffs, and trade agreements"
 
 ## Important limitations
 
