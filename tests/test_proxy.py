@@ -232,6 +232,31 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(transformed, body)
         self.assertFalse(stats["compressed"])
 
+    def test_tool_outputs_after_cache_breakpoint_compress_but_cached_prefix_is_untouched(self):
+        cached_output = "CACHED PREFIX MUST STAY EXACT\\n" * 80
+        noisy_output = "INFO repeated tool output line\\n" * 300
+        latest_output = "LATEST TOOL RESULT MUST REMAIN EXACT\\n" * 100
+        body = {"model": "test", "messages": [
+            {"role": "tool", "tool_call_id": "cached-call", "content": cached_output,
+             "cache_control": {"type": "ephemeral"}},
+            {"role": "tool", "tool_call_id": "old-call", "content": noisy_output},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "latest-call", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+            ]},
+            {"role": "tool", "tool_call_id": "latest-call", "content": latest_output},
+        ]}
+        transformed, stats = transform_payload(
+            "/v1/chat/completions", body, min_total_chars=1, min_old_chars=1,
+            tool_output_max_chars=180,
+        )
+        self.assertEqual(transformed["messages"][0]["content"], cached_output)
+        self.assertLess(len(transformed["messages"][1]["content"]), len(noisy_output))
+        self.assertEqual(transformed["messages"][3]["content"], latest_output)
+        self.assertTrue(stats["cache_control_present"])
+        self.assertEqual(stats["cache_protected_tool_outputs"], 1)
+        self.assertGreater(stats["tool_output_chars_saved"], 0)
+        self.assertTrue(stats["compressed"])
+
     def test_large_tool_log_compresses_without_quadratic_slowdown(self):
         import time
         lines = [f"INFO worker {i % 8}: scanned shard={i} request_id=req-{i}" for i in range(50_000)]
