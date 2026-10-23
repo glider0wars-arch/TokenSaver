@@ -97,7 +97,7 @@ The gateway does not call a second model to summarize old messages, so it adds n
 
 ## Measuring results
 
-Token counts differ by provider and tokenizer. Compare actual usage metadata when available. Otherwise, report that savings are estimated rather than measured. Input, output, cached, and reasoning tokens may be counted differently by each provider.
+Token counts differ by provider and tokenizer. Compare actual usage metadata when available. Otherwise, report that savings are estimated rather than measured. Input, output, cached, and reasoning tokens may be counted differently by each provider. For a repeatable paired test of real tasks, cost, latency, and answer quality, see [the validation protocol](docs/validation.md).
 
 ## License
 
