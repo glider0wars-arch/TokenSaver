@@ -24,7 +24,7 @@ _IMPORTANT = re.compile(
     r"\b(?:do not|don't|never|must not|should not|cannot|can't|remember this)\b|"
     r"(?:^|[\s:،.!؟])(?:خطا|اشکال|تصمیم|محدودیت|الزام|مهم است|فراموش نکن|انجام نشود|نباید)(?=$|[\s:،.!؟])|"
     r"\b(?:tool_use|tool_result|function_call|function_call_output)\b|"
-    r"\bTOKNIX_[A-Z0-9_]+\b|\bline\s+\d+\b|\bstatus code\s+\d{3}\b",
+    r"\b(?:TOKNIX|TOKENSAVER)_[A-Z0-9_]+\b|\bline\s+\d+\b|\bstatus code\s+\d{3}\b",
     re.IGNORECASE,
 )
 _HOP_BY_HOP = {
@@ -39,8 +39,8 @@ def _env_value(name: str, default: str | None = None) -> str | None:
     if name.startswith("TOKNIX_"):
         legacy_name = "TOKENSAVER_" + name[len("TOKNIX_"):]
         return os.environ.get(name, os.environ.get(legacy_name, default))
-    if name.startswith("TOKNIX_"):
-        canonical_name = "TOKNIX_" + name[len("TOKNIX_"):]
+    if name.startswith("TOKENSAVER_"):
+        canonical_name = "TOKNIX_" + name[len("TOKENSAVER_"):]
         return os.environ.get(canonical_name, os.environ.get(name, default))
     return os.environ.get(name, default)
 
