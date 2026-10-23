@@ -66,13 +66,13 @@ Install locally (Python 3.10+):
 
 Create a memory file and store important project facts:
 
-    toknix memory-init .tokensaver-memory.json --project "My project"
-    toknix memory-add .tokensaver-memory.json GOALS "Build the requested app"
-    toknix memory-add .tokensaver-memory.json RULES "Keep existing tests passing"
+    toknix memory-init .toknix-memory.json --project "My project"
+    toknix memory-add .toknix-memory.json GOALS "Build the requested app"
+    toknix memory-add .toknix-memory.json RULES "Keep existing tests passing"
 
 Prepare a compact prompt for the next model request:
 
-    toknix request .tokensaver-memory.json "Add a settings page"
+    toknix request .toknix-memory.json "Add a settings page"
 
 The command prints the compact memory plus the new message, and saves the new user turn to the rolling window. Send the printed prompt to the model instead of resending the full old transcript when your workflow lets you control request construction. After the model responds, save only a short, useful summary or durable decision with memory-add or memory-turn, not a huge raw answer.
 
@@ -89,7 +89,7 @@ Run it with Python 3.10+:
     python -m pip install -e .
     TOKENSAVER_UPSTREAM_BASE_URL=https://api.openai.com python -m tokensaver.cli serve
 
-By default, it listens only on `127.0.0.1:8765`. Check `http://127.0.0.1:8765/health` and `/stats`. Set the upstream origin to `https://api.x.ai` for Grok API or `https://api.anthropic.com` for Anthropic API. Compaction is controlled by `TOKENSAVER_MIN_TOTAL_CHARS` (default 5000) and `TOKENSAVER_CUT_STEP` (default 4); cache-control prefixes are passed through unchanged. Configuration and integration examples are in `docs/gateway.md` and `.env.example`. Design trade-offs from related projects are documented in `docs/research-notes.md`.
+By default, it listens only on `127.0.0.1:8765`. Check `http://127.0.0.1:8765/health` and `/stats`. Set the upstream origin to `https://api.x.ai` for Grok API or `https://api.anthropic.com` for Anthropic API. Compaction is controlled by `TOKENSAVER_MIN_TOTAL_CHARS` (default 5000) and `TOKENSAVER_CUT_STEP` (default 4); cache-marked prefixes remain unchanged; eligible tool outputs after a cache breakpoint may be compacted. Configuration and integration examples are in `docs/gateway.md` and `.env.example`. Design trade-offs from related projects are documented in `docs/research-notes.md`.
 
 The gateway does not call a second model to summarize old messages, so it adds no extra model call for compression. It recomputes the extractive note from the transcript supplied by the client on each request; the separate CLI memory file is available for durable project facts. Its extractive compaction is conservative, but can still lose nuance; check the results with your own tasks. Token counts are rough estimates, not provider-reported measurements.
 
