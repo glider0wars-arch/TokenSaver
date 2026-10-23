@@ -72,7 +72,7 @@ Codex authentication and supported provider configuration depend on the product/
 - Tool outputs in the retained recent window are not rewritten. Older tool history may be summarized.
 - `/stats` distinguishes proxy-side transformation counters from provider-reported usage. Character-based token estimates are rough estimates, not provider tokenizer counts. Legacy `TOKENSAVER_*` environment variables remain accepted when the corresponding `TOKNIX_*` variable is unset.
 
-This is intentionally safer and less aggressive than learned token-pruning methods such as LLMLingua. Extractive compaction can still lose nuance; test against your actual tasks and lower compression settings if quality suffers. For stronger semantic memory, use a dedicated summarizer and account for the additional model call/cost.
+This is intentionally safer and less aggressive than learned token-pruning methods such as LLMLingua. Extractive compaction can still lose nuance; test against your actual tasks and lower compression settings if quality suffers. The automated HTTP tests cover SSE body passthrough and upstream error responses, but they do not prove compatibility with every provider or every streaming event shape. If an upstream connection fails before response headers, Toknix returns a 502; if it fails after streaming has begun, the response has already started and the proxy can only close the connection. For a repeatable paired test of real tasks, cost, latency, and answer quality, see [the validation protocol](validation.md). For stronger semantic memory, use a dedicated summarizer and account for the additional model call/cost.
 
 ## Security
 
