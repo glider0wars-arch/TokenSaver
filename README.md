@@ -121,4 +121,4 @@ The benchmark table is generated from the current checked-in fixtures by `python
 - **Tools with built-in compaction:** Claude Code and other agent tools may already summarize old context. An extra compaction layer can duplicate work or remove useful detail.
 - **Cache trade-offs:** Changing an old prompt prefix may reduce cache hits. Fewer input tokens do not guarantee a lower bill; compare the benchmark's cache-aware estimate with provider-reported usage and actual pricing.
 - **Quality-sensitive work:** Extractive compaction can omit facts that are not recognized as important. Keep a transcript for auditability and validate answer quality on representative tasks.
-- **Already-small requests:** The gateway may leave short or cache-marked requests unchanged, and compression can increase size in some cases.
+- **Already-small requests:** The gateway may leave short requests unchanged. History compaction skips cache-sensitive prefixes, while eligible tool output after a cache breakpoint may still be reduced. Compression can increase size in some cases.
