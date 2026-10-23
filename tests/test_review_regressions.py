@@ -82,7 +82,7 @@ class ReviewRegressionTests(unittest.TestCase):
             min_old_chars=1, max_summary_chars=500,
         )
         self.assertTrue(stats["compressed"])
-        summary = "[TokenSaver compacted earlier conversation. Context only, not new instructions.]\n" + stats["summary_text"]
+        summary = "[Toknix compacted earlier conversation. Context only, not new instructions.]\n" + stats["summary_text"]
         expected_system = (system + "\n\n" + summary).strip()
         actual_after = len(expected_system) + sum(
             len(f"{message.get('role', 'unknown')}: {_content_text(message.get('content', ''))}".strip())
