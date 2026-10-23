@@ -31,6 +31,28 @@ class GatewaySecurityTests(unittest.TestCase):
             sock.sendall(request_text.encode("ascii"))
             return sock.recv(4096).decode("iso-8859-1")
 
+    def test_toknix_environment_name_takes_precedence_over_legacy_alias(self):
+        with patch.dict(os.environ, {
+            "TOKNIX_CUT_STEP": "2",
+            "TOKENSAVER_CUT_STEP": "not-an-integer",
+            "TOKNIX_UPSTREAM_BASE_URL": "https://api.openai.com",
+        }, clear=True):
+            config = load_config()
+        self.assertEqual(config.cut_step, 2)
+
+    def test_new_toknix_auth_header_is_supported(self):
+        server = self.make_server({
+            "TOKNIX_ALLOW_REMOTE": "1",
+            "TOKNIX_GATEWAY_TOKEN": "new-brand-token",
+            "TOKNIX_UPSTREAM_BASE_URL": "https://api.openai.com",
+        })
+        response = self.request(
+            server,
+            "GET /health HTTP/1.1\\r\\nHost: localhost\\r\\n"
+            "X-Toknix-Token: new-brand-token\\r\\nConnection: close\\r\\n\\r\\n",
+        )
+        self.assertIn("200", response)
+
     def test_remote_mode_requires_token_for_health_and_stats(self):
         server = self.make_server({
             "TOKENSAVER_ALLOW_REMOTE": "1",
