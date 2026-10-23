@@ -1,9 +1,9 @@
 ---
-name: token-saver
+name: toknix
 description: Reduce unnecessary prompt, context, tool-output, and response tokens while preserving task requirements and correctness. Use for coding tasks, long conversations, debugging, and multi-step agent workflows.
 ---
 
-# TokenSaver AI Skill
+# Toknix AI Skill
 
 ## Goal
 Complete the user's task with the smallest useful amount of context and output, without losing requirements, correctness, or important uncertainty.
@@ -49,7 +49,7 @@ Complete the user's task with the smallest useful amount of context and output, 
 - If provider usage metadata or a tokenizer is available, measure before/after counts.
 - Otherwise, describe savings as qualitative or estimated, never as a measured percentage.
 - Distinguish input, output, cached, and reasoning tokens when the provider exposes them.
-- Provider quotas may depend on time windows, model, plan, workload, and service policy. TokenSaver cannot guarantee quota avoidance.
+- Provider quotas may depend on time windows, model, plan, workload, and service policy. Toknix cannot guarantee quota avoidance.
 
 ## Safety and integrity
 - Do not bypass quotas, rate limits, authentication, or provider safeguards.
@@ -69,9 +69,9 @@ When a task must continue in a new chat or agent session, use:
 **Next action:** …
 **Relevant files:** …
 
-## Rolling memory (when the TokenSaver CLI is installed)
-- Keep durable goals, constraints, decisions, current state, relevant files, and open tasks in the local TokenSaver memory file.
-- Before a new model request, use the `tokensaver request` command to render compact memory plus the new message; use that output instead of resending the entire old transcript when the client permits it.
+## Rolling memory (when the Toknix CLI is installed)
+- Keep durable goals, constraints, decisions, current state, relevant files, and open tasks in the local Toknix memory file.
+- Before a new model request, use the `toknix request` command to render compact memory plus the new message; use that output instead of resending the entire old transcript when the client permits it.
 - After a response, store only a short, useful summary or durable decision. Do not copy a long assistant response into memory.
 - Keep exact error messages and essential constraints when they are needed for debugging.
 - This workflow is not automatic provider interception. Never claim that hidden provider history has been replaced unless a real integration is configured.
