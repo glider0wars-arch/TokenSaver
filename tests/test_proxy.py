@@ -219,7 +219,7 @@ class ProxyTests(unittest.TestCase):
     def test_important_regex_does_not_promote_generic_words_or_filenames(self):
         for line in ("We must update this later.", "We should look at this.", "باید این کار را انجام بدهیم", "The path is /tmp/cache", "Changed files: app.py, tests/test_proxy.py"):
             self.assertIsNone(_IMPORTANT.search(line), line)
-        for line in ("Error: request failed", "Decision: preserve cached prefix", "Error in app.py", "tool_use id=abc", "TOKENSAVER_USAGE_TEE_MAX_BYTES=1048576"):
+        for line in ("Error: request failed", "Decision: preserve cached prefix", "Error in app.py", "tool_use id=abc", "TOKNIX_USAGE_TEE_MAX_BYTES=1048576"):
             self.assertIsNotNone(_IMPORTANT.search(line), line)
 
     def test_tool_output_compression_skips_entire_cache_marked_payload(self):
