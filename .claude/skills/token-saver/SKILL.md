@@ -1,5 +1,5 @@
 ---
-name: toknix
+name: token-saver-legacy
 description: Reduce unnecessary prompt, context, tool-output, and response tokens while preserving task requirements and correctness.
 ---
 
