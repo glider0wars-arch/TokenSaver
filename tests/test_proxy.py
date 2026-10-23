@@ -319,5 +319,34 @@ class ProxyTests(unittest.TestCase):
         self.assertEqual(messages[1]["content"], "ok")
 
 
+    def test_unsupported_request_shapes_are_passed_through_unchanged(self):
+        cases = [
+            # Responses API can accept string input, but this gateway only rewrites
+            # the documented list-based shape.
+            ("/v1/responses", {
+                "model": "test",
+                "input": "Keep this string input exactly as supplied.",
+            }),
+            # Unknown routes must be forwarded without prompt transformation.
+            ("/v1/unknown", {
+                "model": "test",
+                "messages": [{"role": "user", "content": "Do not rewrite this."}],
+            }),
+            # Malformed/unknown message shape is not something the proxy should guess at.
+            ("/v1/chat/completions", {
+                "model": "test",
+                "messages": "unexpected string instead of a message list",
+            }),
+        ]
+        for path, payload in cases:
+            with self.subTest(path=path):
+                transformed, stats = transform_payload(
+                    path, payload, keep_recent=1, min_total_chars=1,
+                    min_old_chars=1, max_summary_chars=100,
+                )
+                self.assertEqual(transformed, payload)
+                self.assertFalse(stats["compressed"])
+
+
 if __name__ == "__main__":
     unittest.main()
