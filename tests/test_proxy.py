@@ -257,6 +257,44 @@ class ProxyTests(unittest.TestCase):
         self.assertGreater(stats["tool_output_chars_saved"], 0)
         self.assertTrue(stats["compressed"])
 
+    def test_cache_boundary_compression_supports_anthropic_and_responses_shapes(self):
+        cached = "CACHED PREFIX MUST REMAIN EXACT\\n" * 80
+        noisy = "INFO repeated output line\\n" * 300
+        latest = "LATEST TOOL RESULT MUST REMAIN EXACT\\n" * 100
+        cases = [
+            ("/v1/messages", {"model": "test", "messages": [
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "cached",
+                    "content": cached, "cache_control": {"type": "ephemeral"}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "old", "content": noisy}]},
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "latest-call",
+                    "name": "read", "input": {}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "latest-call", "content": latest}]},
+            ]}, lambda body: body["messages"][0]["content"][0]["content"],
+               lambda body: body["messages"][1]["content"][0]["content"],
+               lambda body: body["messages"][3]["content"][0]["content"]),
+            ("/v1/responses", {"model": "test", "input": [
+                {"type": "function_call_output", "call_id": "cached", "output": cached,
+                 "cache_control": {"type": "ephemeral"}},
+                {"type": "function_call_output", "call_id": "old", "output": noisy},
+                {"type": "function_call", "call_id": "latest-call", "name": "read", "arguments": "{}"},
+                {"type": "function_call_output", "call_id": "latest-call", "output": latest},
+            ]}, lambda body: body["input"][0]["output"],
+               lambda body: body["input"][1]["output"],
+               lambda body: body["input"][3]["output"]),
+        ]
+        for path, payload, get_cached, get_noisy, get_latest in cases:
+            with self.subTest(path=path):
+                transformed, stats = transform_payload(
+                    path, payload, min_total_chars=1, min_old_chars=1, tool_output_max_chars=180,
+                )
+                self.assertEqual(get_cached(transformed), cached)
+                self.assertLess(len(get_noisy(transformed)), len(noisy))
+                self.assertEqual(get_latest(transformed), latest)
+                self.assertTrue(stats["cache_control_present"])
+                self.assertEqual(stats["cache_protected_tool_outputs"], 1)
+                self.assertGreater(stats["tool_output_chars_saved"], 0)
+                self.assertTrue(stats["compressed"])
+
     def test_large_tool_log_compresses_without_quadratic_slowdown(self):
         import time
         lines = [f"INFO worker {i % 8}: scanned shard={i} request_id=req-{i}" for i in range(50_000)]
