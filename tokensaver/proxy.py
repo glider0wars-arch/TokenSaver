@@ -345,6 +345,18 @@ def _contains_cache_control(value: Any) -> bool:
     return False
 
 
+def _cache_protected_tool_output_count(items: list[Any], kind: str) -> int:
+    """Count tool-output slots kept unchanged because they fall inside a cache prefix."""
+    boundary = max(
+        (i for i, item in enumerate(items) if isinstance(item, dict) and _contains_cache_control(item)),
+        default=-1,
+    )
+    return sum(
+        1 for index, owner, _key, _text in _tool_output_slots(items, kind)
+        if index <= boundary or _contains_cache_control(owner)
+    )
+
+
 def _select_summary_lines(text: str, budget: int) -> str:
     """Select high-signal lines by importance, not merely their position in history."""
     lines: list[str] = []
@@ -647,11 +659,7 @@ def transform_payload(
             min_old_chars=min_old_chars, min_total_chars=min_total_chars, cut_step=cut_step)
         stats["tool_output_chars_saved"] = saved
         stats["cache_control_present"] = has_cache_control
-        stats["cache_protected_tool_outputs"] = sum(
-            1 for i, item in enumerate(original_messages)
-            if isinstance(item, dict) and _contains_cache_control(item)
-            and (item.get("role") == "tool" or item.get("type") == "function_call_output")
-        )
+        stats["cache_protected_tool_outputs"] = _cache_protected_tool_output_count(original_messages, "chat")
         stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
         stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
         if saved:
@@ -666,10 +674,7 @@ def transform_payload(
             min_total_chars=min_total_chars, cut_step=cut_step)
         stats["tool_output_chars_saved"] = saved
         stats["cache_control_present"] = has_cache_control
-        stats["cache_protected_tool_outputs"] = sum(
-            1 for item in original_messages if isinstance(item, dict)
-            and _contains_cache_control(item) and item.get("role") == "user"
-        )
+        stats["cache_protected_tool_outputs"] = _cache_protected_tool_output_count(original_messages, "anthropic")
         stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
         stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
         if not stats.get("compressed"):
@@ -694,10 +699,7 @@ def transform_payload(
             min_old_chars=min_old_chars, min_total_chars=min_total_chars, cut_step=cut_step)
         stats["tool_output_chars_saved"] = saved
         stats["cache_control_present"] = has_cache_control
-        stats["cache_protected_tool_outputs"] = sum(
-            1 for item in original_input if isinstance(item, dict)
-            and _contains_cache_control(item) and item.get("type") == "function_call_output"
-        )
+        stats["cache_protected_tool_outputs"] = _cache_protected_tool_output_count(original_input, "responses")
         stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
         stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
         if saved:
@@ -930,7 +932,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
         if not self._preflight():
             return
         if self.path == "/health":
-            return self._json_response(200, {"ok": True, "service": "TokenSaver Gateway"})
+            return self._json_response(200, {"ok": True, "service": "Toknix Gateway"})
         if self.path == "/stats":
             with self.server.stats_lock:  # type: ignore[attr-defined]
                 stats = dict(self.server.stats)  # type: ignore[attr-defined]
@@ -1025,6 +1027,8 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             st["requests"] += 1
             st["compressed_requests"] += int(bool(stats.get("compressed")))
             st["chars_saved"] += max(0, int(stats.get("chars_saved", 0)))
+            st["cache_control_requests"] = st.get("cache_control_requests", 0) + int(bool(stats.get("cache_control_present")))
+            st["cache_protected_tool_outputs"] = st.get("cache_protected_tool_outputs", 0) + max(0, int(stats.get("cache_protected_tool_outputs", 0)))
             st.setdefault("transform_errors", 0)
         connection_cls = http.client.HTTPSConnection if parsed.scheme == "https" else http.client.HTTPConnection
         conn = connection_cls(parsed.hostname, parsed.port, timeout=config.upstream_timeout)
@@ -1130,6 +1134,7 @@ def serve(host: str | None = None, port: int | None = None) -> None:
     server.stats_lock = threading.Lock()  # type: ignore[attr-defined]
     server.stats = {
         "requests": 0, "compressed_requests": 0, "chars_saved": 0,
+        "cache_control_requests": 0, "cache_protected_tool_outputs": 0,
         "upstream_errors": 0, "transform_errors": 0,
         "system_chars": 0, "old_history_chars": 0, "recent_turns_chars": 0, "tool_outputs_chars": 0,
         "estimated_system_tokens": 0, "estimated_old_history_tokens": 0,
@@ -1138,7 +1143,7 @@ def serve(host: str | None = None, port: int | None = None) -> None:
         "provider_cached_input_tokens": 0, "provider_cache_creation_input_tokens": 0,
         "provider_usage_responses": 0, "provider_usage_parse_errors": 0,
     }  # type: ignore[attr-defined]
-    print(f"TokenSaver Gateway listening on http://{config.host}:{config.port}")
+    print(f"Toknix Gateway listening on http://{config.host}:{config.port}")
     print("Health: /health | Stats: /stats | Ctrl+C to stop")
     try:
         server.serve_forever()
