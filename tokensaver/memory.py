@@ -136,7 +136,7 @@ class RollingMemory:
             raise
 
     def render(self, *, include_recent: bool = True) -> str:
-        lines = ["# TOKENSAVER MEMORY"]
+        lines = ["# TOKNIX MEMORY"]
         if self.project.strip():
             lines.append(f"PROJECT: {self.project.strip()}")
         for category in CATEGORIES:
@@ -174,7 +174,7 @@ class RollingMemory:
     def load(cls, path: str | Path) -> "RollingMemory":
         target = Path(path).expanduser()
         if not target.exists():
-            raise FileNotFoundError(f"Memory file not found: {target}. Create it with 'tokensaver memory-init {target}'.")
+            raise FileNotFoundError(f"Memory file not found: {target}. Create it with 'toknix memory-init {target}'.")
         try:
             raw: dict[str, Any] = json.loads(target.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
