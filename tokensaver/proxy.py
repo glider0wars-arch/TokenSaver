@@ -24,7 +24,7 @@ _IMPORTANT = re.compile(
     r"\b(?:do not|don't|never|must not|should not|cannot|can't|remember this)\b|"
     r"(?:^|[\s:،.!؟])(?:خطا|اشکال|تصمیم|محدودیت|الزام|مهم است|فراموش نکن|انجام نشود|نباید)(?=$|[\s:،.!؟])|"
     r"\b(?:tool_use|tool_result|function_call|function_call_output)\b|"
-    r"\bTOKENSAVER_[A-Z0-9_]+\b|\bline\s+\d+\b|\bstatus code\s+\d{3}\b",
+    r"\bTOKNIX_[A-Z0-9_]+\b|\bline\s+\d+\b|\bstatus code\s+\d{3}\b",
     re.IGNORECASE,
 )
 _HOP_BY_HOP = {
@@ -32,6 +32,22 @@ _HOP_BY_HOP = {
     "te", "trailers", "transfer-encoding", "upgrade", "host", "content-length",
 }
 _DEFAULT_MAX_BODY_BYTES = 10 * 1024 * 1024
+
+
+def _env_value(name: str, default: str | None = None) -> str | None:
+    """Read the Toknix environment name first, with TokenSaver-era fallback."""
+    if name.startswith("TOKNIX_"):
+        legacy_name = "TOKENSAVER_" + name[len("TOKNIX_"):]
+        return os.environ.get(name, os.environ.get(legacy_name, default))
+    if name.startswith("TOKNIX_"):
+        canonical_name = "TOKNIX_" + name[len("TOKNIX_"):]
+        return os.environ.get(canonical_name, os.environ.get(name, default))
+    return os.environ.get(name, default)
+
+
+def _env_label(name: str) -> str:
+    return "TOKNIX_" + name[len("TOKNIX_"):] if name.startswith("TOKNIX_") else name
+
 
 
 @dataclass(frozen=True)
@@ -56,65 +72,65 @@ class GatewayConfig:
 
 
 def _env_int(name: str, default: int, *, minimum: int = 0, maximum: int | None = None) -> int:
-    raw = os.getenv(name, str(default))
+    raw = _env_value(name, str(default))
     try:
         value = int(raw)
     except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be an integer; received {raw!r}.") from exc
+        raise ValueError(f"{_env_label(name)} must be an integer; received {raw!r}.") from exc
     if value < minimum or (maximum is not None and value > maximum):
         bound = f"{minimum}..{maximum}" if maximum is not None else f">= {minimum}"
-        raise ValueError(f"{name} must be {bound}; received {value}.")
+        raise ValueError(f"{_env_label(name)} must be {bound}; received {value}.")
     return value
 
 
 def load_config() -> GatewayConfig:
     """Validate every supported environment setting with actionable errors."""
-    upstream = os.getenv("TOKENSAVER_UPSTREAM_BASE_URL", "https://api.openai.com").rstrip("/")
+    upstream = _env_value("TOKNIX_UPSTREAM_BASE_URL", "https://api.openai.com").rstrip("/")
     try:
         parsed = urlsplit(upstream)
         hostname = parsed.hostname
         upstream_port = parsed.port
     except ValueError as exc:
-        raise ValueError(f"TOKENSAVER_UPSTREAM_BASE_URL is not a valid URL or port: {exc}") from exc
+        raise ValueError(f"TOKNIX_UPSTREAM_BASE_URL is not a valid URL or port: {exc}") from exc
     if upstream_port == 0:
-        raise ValueError("TOKENSAVER_UPSTREAM_BASE_URL port must be between 1 and 65535.")
+        raise ValueError("TOKNIX_UPSTREAM_BASE_URL port must be between 1 and 65535.")
     if parsed.scheme not in {"http", "https"} or not hostname or parsed.username or parsed.password:
-        raise ValueError("TOKENSAVER_UPSTREAM_BASE_URL must be an http(s) origin without embedded credentials.")
+        raise ValueError("TOKNIX_UPSTREAM_BASE_URL must be an http(s) origin without embedded credentials.")
     if parsed.query or parsed.fragment:
-        raise ValueError("TOKENSAVER_UPSTREAM_BASE_URL must not include a query string or fragment.")
-    enabled_raw = os.getenv("TOKENSAVER_ENABLED", "1")
-    remote_raw = os.getenv("TOKENSAVER_ALLOW_REMOTE", "0")
-    access_raw = os.getenv("TOKENSAVER_ACCESS_LOG", "0")
-    for name, raw in (("TOKENSAVER_ENABLED", enabled_raw), ("TOKENSAVER_ALLOW_REMOTE", remote_raw),
-                      ("TOKENSAVER_ACCESS_LOG", access_raw)):
+        raise ValueError("TOKNIX_UPSTREAM_BASE_URL must not include a query string or fragment.")
+    enabled_raw = _env_value("TOKNIX_ENABLED", "1")
+    remote_raw = _env_value("TOKNIX_ALLOW_REMOTE", "0")
+    access_raw = _env_value("TOKNIX_ACCESS_LOG", "0")
+    for name, raw in (("TOKNIX_ENABLED", enabled_raw), ("TOKNIX_ALLOW_REMOTE", remote_raw),
+                      ("TOKNIX_ACCESS_LOG", access_raw)):
         if raw not in {"0", "1"}:
             raise ValueError(f"{name} must be exactly '0' or '1'.")
-    timeout_raw = os.getenv("TOKENSAVER_UPSTREAM_TIMEOUT", "120")
+    timeout_raw = _env_value("TOKNIX_UPSTREAM_TIMEOUT", "120")
     try:
         timeout = float(timeout_raw)
     except ValueError as exc:
-        raise ValueError(f"TOKENSAVER_UPSTREAM_TIMEOUT must be a positive number; received {timeout_raw!r}.") from exc
+        raise ValueError(f"TOKNIX_UPSTREAM_TIMEOUT must be a positive number; received {timeout_raw!r}.") from exc
     if not math.isfinite(timeout) or timeout <= 0:
-        raise ValueError("TOKENSAVER_UPSTREAM_TIMEOUT must be a finite number greater than zero.")
-    host = os.getenv("TOKENSAVER_HOST", "127.0.0.1")
-    port = _env_int("TOKENSAVER_PORT", 8765, minimum=1, maximum=65535)
+        raise ValueError("TOKNIX_UPSTREAM_TIMEOUT must be a finite number greater than zero.")
+    host = _env_value("TOKNIX_HOST", "127.0.0.1")
+    port = _env_int("TOKNIX_PORT", 8765, minimum=1, maximum=65535)
     allow_remote = remote_raw == "1"
-    token = os.getenv("TOKENSAVER_GATEWAY_TOKEN", "")
-    upstream_key = os.getenv("TOKENSAVER_UPSTREAM_API_KEY", "")
+    token = _env_value("TOKNIX_GATEWAY_TOKEN", "")
+    upstream_key = _env_value("TOKNIX_UPSTREAM_API_KEY", "")
     if any(ch in token for ch in "\r\n") or any(ch in upstream_key for ch in "\r\n"):
-        raise ValueError("TOKENSAVER_GATEWAY_TOKEN and TOKENSAVER_UPSTREAM_API_KEY must not contain newlines.")
+        raise ValueError("TOKNIX_GATEWAY_TOKEN and TOKNIX_UPSTREAM_API_KEY must not contain newlines.")
     if allow_remote and not token:
-        raise ValueError("TOKENSAVER_GATEWAY_TOKEN is required when TOKENSAVER_ALLOW_REMOTE=1.")
+        raise ValueError("TOKNIX_GATEWAY_TOKEN is required when TOKNIX_ALLOW_REMOTE=1.")
     if host not in {"127.0.0.1", "localhost", "::1"} and not allow_remote:
-        raise ValueError("Refusing non-local bind. Set TOKENSAVER_ALLOW_REMOTE=1 and TOKENSAVER_GATEWAY_TOKEN only behind authenticated TLS.")
+        raise ValueError("Refusing non-local bind. Set TOKNIX_ALLOW_REMOTE=1 and TOKNIX_GATEWAY_TOKEN only behind authenticated TLS.")
     return GatewayConfig(
         upstream_base_url=upstream,
-        keep_recent_messages=_env_int("TOKENSAVER_KEEP_RECENT_MESSAGES", 8, minimum=1),
-        summary_max_chars=_env_int("TOKENSAVER_SUMMARY_MAX_CHARS", 3000, minimum=100),
-        min_old_chars=_env_int("TOKENSAVER_MIN_OLD_CHARS", 1200, minimum=0),
-        min_total_chars=_env_int("TOKENSAVER_MIN_TOTAL_CHARS", 5000, minimum=1),
-        cut_step=_env_int("TOKENSAVER_CUT_STEP", 4, minimum=1),
-        max_body_bytes=_env_int("TOKENSAVER_MAX_BODY_BYTES", _DEFAULT_MAX_BODY_BYTES, minimum=1),
+        keep_recent_messages=_env_int("TOKNIX_KEEP_RECENT_MESSAGES", 8, minimum=1),
+        summary_max_chars=_env_int("TOKNIX_SUMMARY_MAX_CHARS", 3000, minimum=100),
+        min_old_chars=_env_int("TOKNIX_MIN_OLD_CHARS", 1200, minimum=0),
+        min_total_chars=_env_int("TOKNIX_MIN_TOTAL_CHARS", 5000, minimum=1),
+        cut_step=_env_int("TOKNIX_CUT_STEP", 4, minimum=1),
+        max_body_bytes=_env_int("TOKNIX_MAX_BODY_BYTES", _DEFAULT_MAX_BODY_BYTES, minimum=1),
         upstream_timeout=timeout,
         enabled=enabled_raw == "1",
         host=host,
@@ -123,8 +139,8 @@ def load_config() -> GatewayConfig:
         gateway_token=token,
         access_log=access_raw == "1",
         upstream_api_key=upstream_key,
-        tool_output_max_chars=_env_int("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS", 4000, minimum=1),
-        usage_tee_max_bytes=_env_int("TOKENSAVER_USAGE_TEE_MAX_BYTES", 1_000_000, minimum=1024, maximum=64 * 1024 * 1024),
+        tool_output_max_chars=_env_int("TOKNIX_TOOL_OUTPUT_MAX_CHARS", 4000, minimum=1),
+        usage_tee_max_bytes=_env_int("TOKNIX_USAGE_TEE_MAX_BYTES", 1_000_000, minimum=1024, maximum=64 * 1024 * 1024),
     )
 
 
@@ -291,7 +307,7 @@ def _compress_payload_tool_outputs(items: list[Any] | str, kind: str | dict[str,
     if not isinstance(items, list) or not isinstance(kind, str):
         raise ValueError("Expected a list of request items and a supported tool-output kind.")
     if max_chars < 1:
-        raise ValueError("TOKENSAVER_TOOL_OUTPUT_MAX_CHARS must be a positive integer.")
+        raise ValueError("TOKNIX_TOOL_OUTPUT_MAX_CHARS must be a positive integer.")
     protected_start = len(items)
     if kind == "chat":
         protected_start = next((i for i in range(len(items) - 1, -1, -1)
@@ -876,13 +892,13 @@ def _record_provider_usage(server: Any, usage: dict[str, int] | None) -> None:
 
 
 
-class TokenSaverProxyHandler(BaseHTTPRequestHandler):
+class ToknixProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "ToknixGateway/0.4"
 
     def log_message(self, fmt: str, *args: Any) -> None:
         config = getattr(self.server, "gateway_config", None)
-        if (config.access_log if config else os.getenv("TOKENSAVER_ACCESS_LOG", "0") == "1"):
+        if (config.access_log if config else _env_value("TOKNIX_ACCESS_LOG", "0") == "1"):
             super().log_message(fmt, *args)
 
     def _config(self) -> GatewayConfig:
@@ -895,8 +911,8 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             self._json_response(500, {"error": str(exc)})
             return False
         if config.allow_remote:
-            if "X-TokenSaver-Token" in self.headers:
-                supplied = self.headers.get("X-TokenSaver-Token", "")
+            if "X-Toknix-Token" in self.headers or "X-TokenSaver-Token" in self.headers:
+                supplied = self.headers.get("X-Toknix-Token", self.headers.get("X-TokenSaver-Token", ""))
             else:
                 auth = self.headers.get("Authorization", "")
                 supplied = auth[7:] if auth.startswith("Bearer ") else ""
@@ -1034,7 +1050,7 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
         conn = connection_cls(parsed.hostname, parsed.port, timeout=config.upstream_timeout)
         headers: dict[str, str] = {}
         for key, value in self.headers.items():
-            if key.lower() not in _HOP_BY_HOP and key.lower() not in {"accept-encoding", "x-tokensaver-token"}:
+            if key.lower() not in _HOP_BY_HOP and key.lower() not in {"accept-encoding", "x-toknix-token", "x-tokensaver-token"}:
                 headers[key] = value
         headers["Content-Length"] = str(len(outgoing))
         headers["Connection"] = "close"
@@ -1115,6 +1131,10 @@ class TokenSaverProxyHandler(BaseHTTPRequestHandler):
             self.close_connection = True
 
 
+# Compatibility alias for integrations importing the old handler class name.
+TokenSaverProxyHandler = ToknixProxyHandler
+
+
 def serve(host: str | None = None, port: int | None = None) -> None:
     """Start the gateway after validating configuration before binding a socket."""
     config = load_config()
@@ -1125,11 +1145,11 @@ def serve(host: str | None = None, port: int | None = None) -> None:
         if not 1 <= actual_port <= 65535:
             raise ValueError("port must be in the range 1..65535.")
         if actual_host not in {"127.0.0.1", "localhost", "::1"} and not config.allow_remote:
-            raise ValueError("Refusing non-local bind. Set TOKENSAVER_ALLOW_REMOTE=1 and TOKENSAVER_GATEWAY_TOKEN only behind authenticated TLS.")
+            raise ValueError("Refusing non-local bind. Set TOKNIX_ALLOW_REMOTE=1 and TOKNIX_GATEWAY_TOKEN only behind authenticated TLS.")
         if actual_host not in {"127.0.0.1", "localhost", "::1"} and not config.gateway_token:
-            raise ValueError("TOKENSAVER_GATEWAY_TOKEN is required for remote binding.")
+            raise ValueError("TOKNIX_GATEWAY_TOKEN is required for remote binding.")
         config = GatewayConfig(**{**config.__dict__, "host": actual_host, "port": actual_port})
-    server = ThreadingHTTPServer((config.host, config.port), TokenSaverProxyHandler)
+    server = ThreadingHTTPServer((config.host, config.port), ToknixProxyHandler)
     server.gateway_config = config  # type: ignore[attr-defined]
     server.stats_lock = threading.Lock()  # type: ignore[attr-defined]
     server.stats = {
