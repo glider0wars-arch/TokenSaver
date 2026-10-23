@@ -22,6 +22,12 @@ Toknix is a small, provider-neutral prompt and context optimization kit for Clau
 3. For Grok, use `providers/grok.md` to copy the compact system prompt.
 4. Give the agent a task and ask it to return only the required output, with assumptions and blockers called out.
 
+## Cache-aware tool-output compression
+
+Toknix treats cache breakpoints as boundaries, not as a reason to disable every optimization in the whole request. Tool-output text at or before the last item containing `cache_control` is preserved. Eligible older tool outputs strictly after that boundary may be compacted, while the newest tool cycle remains protected. Conversation-history compaction remains conservative around cached prefixes.
+
+The `/stats` endpoint reports `cache_control_requests`, `cache_protected_tool_outputs`, and `tool_output_chars_saved` so operators can see whether a request contained cache markers, how many tool outputs were kept unchanged, and whether eligible output was reduced. These counters describe proxy transformations; they do not prove provider-side cache hit rates or real billed-token savings.
+
 ## Response preferences and user control
 
 Toknix supports non-binding response preferences in the local prompt builder:
