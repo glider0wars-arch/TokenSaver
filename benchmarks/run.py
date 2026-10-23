@@ -1,4 +1,4 @@
-"""Offline, cache-aware benchmark for TokenSaver gateway compaction.
+"""Offline, cache-aware benchmark for Toknix gateway compaction.
 
 Run with: python -m benchmarks.run
 All token counts are estimates unless the optional live API mode returns provider usage.
@@ -49,7 +49,7 @@ def _live_usage(payload: dict[str, Any], *, url: str, key: str) -> dict[str, int
         print("live request skipped: use HTTPS for remote APIs; no key was sent", file=sys.stderr)
         return None
     request_payload = dict(payload)
-    model = os.getenv("TOKENSAVER_LIVE_MODEL")
+    model = os.getenv("TOKNIX_LIVE_MODEL")
     if model:
         request_payload["model"] = model
     data = json.dumps(request_payload, ensure_ascii=False).encode("utf-8")
@@ -105,10 +105,10 @@ def run(*, cached_ratio: float = 0.1, input_price: float = 1.0,
         summary_max_chars: int = 2400) -> tuple[str, bool]:
     rows: list[dict[str, Any]] = []
     retention_failed = False
-    live_url = os.getenv("TOKENSAVER_LIVE_API_URL", "").strip()
-    live_key = os.getenv("TOKENSAVER_LIVE_API_KEY", "")
+    live_url = os.getenv("TOKNIX_LIVE_API_URL", "").strip()
+    live_key = os.getenv("TOKNIX_LIVE_API_KEY", "")
     if live and (not live_url or not live_key):
-        print("Live mode skipped: set TOKENSAVER_LIVE_API_URL and TOKENSAVER_LIVE_API_KEY.", file=sys.stderr)
+        print("Live mode skipped: set TOKNIX_LIVE_API_URL and TOKNIX_LIVE_API_KEY.", file=sys.stderr)
         live = False
 
     for fixture_path in sorted(FIXTURES.glob("*.json")):
@@ -188,10 +188,10 @@ def run(*, cached_ratio: float = 0.1, input_price: float = 1.0,
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Benchmark TokenSaver compaction and retention.")
-    parser.add_argument("--cached-input-price-ratio", type=float, default=float(os.getenv("TOKENSAVER_CACHED_INPUT_PRICE_RATIO", "0.1")))
-    parser.add_argument("--input-price-per-million", type=float, default=float(os.getenv("TOKENSAVER_INPUT_PRICE_PER_MILLION", "1.0")))
-    parser.add_argument("--cacheable-fraction", type=float, default=float(os.getenv("TOKENSAVER_ASSUMED_CACHEABLE_FRACTION", "0.7")))
+    parser = argparse.ArgumentParser(description="Benchmark Toknix compaction and retention.")
+    parser.add_argument("--cached-input-price-ratio", type=float, default=float(os.getenv("TOKNIX_CACHED_INPUT_PRICE_RATIO", "0.1")))
+    parser.add_argument("--input-price-per-million", type=float, default=float(os.getenv("TOKNIX_INPUT_PRICE_PER_MILLION", "1.0")))
+    parser.add_argument("--cacheable-fraction", type=float, default=float(os.getenv("TOKNIX_ASSUMED_CACHEABLE_FRACTION", "0.7")))
     parser.add_argument("--minimum-retention", type=float, default=95.0)
     parser.add_argument("--keep-recent", type=int, default=4)
     parser.add_argument("--summary-max-chars", type=int, default=2400)
