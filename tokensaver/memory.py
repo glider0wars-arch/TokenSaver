@@ -12,6 +12,14 @@ from pathlib import Path
 from typing import Any
 
 
+def _env_value(name: str, default: str | None = None) -> str | None:
+    """Prefer TOKNIX_* settings while accepting the old TOKENSAVER_* prefix."""
+    if name.startswith("TOKNIX_"):
+        legacy_name = "TOKENSAVER_" + name[len("TOKNIX_"):]
+        return os.environ.get(name, os.environ.get(legacy_name, default))
+    return os.environ.get(name, default)
+
+
 CATEGORIES = ("GOALS", "RULES", "DECISIONS", "CURRENT_STATE", "FILES", "OPEN_TASKS", "RECENT_CONTEXT")
 
 
@@ -119,9 +127,9 @@ class RollingMemory:
         if not content:
             return
         try:
-            max_turn_chars = max(1, int(os.getenv("TOKENSAVER_MAX_TURN_CHARS", "2000")))
+            max_turn_chars = max(1, int(_env_value("TOKNIX_MAX_TURN_CHARS", "2000")))
         except ValueError as exc:
-            raise ValueError("TOKENSAVER_MAX_TURN_CHARS must be a positive integer.") from exc
+            raise ValueError("TOKNIX_MAX_TURN_CHARS must be a positive integer.") from exc
         content = content[:max_turn_chars]
         old_sections = {name: list(values) for name, values in self.sections.items()}
         old_turns = [dict(turn) for turn in self.recent_turns]
