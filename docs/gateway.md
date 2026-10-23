@@ -74,6 +74,15 @@ Codex authentication and supported provider configuration depend on the product/
 
 This is intentionally safer and less aggressive than learned token-pruning methods such as LLMLingua. Extractive compaction can still lose nuance; test against your actual tasks and lower compression settings if quality suffers. The automated HTTP tests cover SSE body passthrough and upstream error responses, but they do not prove compatibility with every provider or every streaming event shape. If an upstream connection fails before response headers, Toknix returns a 502; if it fails after streaming has begun, the response has already started and the proxy can only close the connection. For a repeatable paired test of real tasks, cost, latency, and answer quality, see [the validation protocol](validation.md). For stronger semantic memory, use a dedicated summarizer and account for the additional model call/cost.
 
+### Request, streaming, and provider-compatibility boundaries
+
+- The HTTP handler reads the request body once using the incoming `Content-Length`, enforces `TOKNIX_MAX_BODY_BYTES`, and forwards the original bytes if JSON parsing fails or the payload is outside a supported shape. Toknix does not consume an asynchronous request stream and then attempt to reuse it; this implementation is a synchronous `BaseHTTPRequestHandler` gateway.
+- Toknix is a same-provider pass-through/compaction proxy, not a cross-provider schema translator. It does not convert OpenAI Chat Completions payloads into Anthropic Messages payloads or vice versa. Point the upstream URL at a provider compatible with the endpoint and request format your client sends.
+- For supported payloads, compaction targets message/input history and tool-output text; top-level generation parameters such as `tools`, `tool_choice`, `response_format`, and `temperature` should remain intact. Provider-specific fields not understood by Toknix are not intentionally translated. Test advanced provider features against the exact provider/model you use.
+- The response body is relayed using HTTP chunk framing while reading upstream data with `read1` for low-latency streaming. If writing to the client fails (for example, a disconnect raises `BrokenPipeError`), the forwarding path exits and closes the upstream connection in `finally`. This is connection cancellation by closing the upstream socket, not a provider-level `AbortController`.
+- Toknix does not automatically retry a request after an upstream failure. Before response headers are sent, it can return a 502; after streaming starts, it cannot safely restart the generation without risking duplicated or inconsistent output, so it closes the connection instead.
+- The proxy does not claim universal SSE compatibility: provider event shapes, usage fields, tool semantics, and unusual payload variants need provider-specific integration tests. Current tests are regression coverage for known cases, not proof of compatibility with every API version.
+
 ## Security
 
 - The server binds to loopback by default.
