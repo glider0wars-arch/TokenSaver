@@ -377,7 +377,7 @@ class ProxyTests(unittest.TestCase):
         }
         transformed, stats = transform_payload(
             "/v1/chat/completions", payload, keep_recent=1,
-            min_total_chars=1, min_old_chars=1, max_summary_chars=500,
+            min_total_chars=1, min_old_chars=1, max_summary_chars=500, cut_step=1,
         )
         self.assertTrue(stats["compressed"])
         for key in ("model", "tools", "tool_choice", "response_format", "temperature"):
