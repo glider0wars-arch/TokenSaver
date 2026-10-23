@@ -79,6 +79,6 @@ This is intentionally safer and less aggressive than learned token-pruning metho
 - The server binds to loopback by default.
 - Remote binding is refused unless `TOKNIX_ALLOW_REMOTE=1`; do not enable it on a public interface without an authenticated TLS reverse proxy.
 - Do not log request bodies or API keys. Access logging is off by default.
-- Every environment setting is validated at startup with a clear error. Remote mode requires `TOKNIX_GATEWAY_TOKEN` and authenticates every endpoint, including `/health` and `/stats`.
+- Every environment setting is validated at startup with a clear error. Remote mode requires `TOKNIX_GATEWAY_TOKEN` and authenticates every endpoint, including `/health` and `/stats`, using the `X-Toknix-Token` request header. The old `X-TokenSaver-Token` header is still accepted for existing clients.
 - Use only trusted local clients. Other processes running as your user may be able to access the local port.
 - The proxy forwards requests to the configured upstream. Choose the upstream deliberately and avoid sending secrets you would not send directly to that provider.
