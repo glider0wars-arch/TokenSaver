@@ -308,48 +308,16 @@ def _compress_payload_tool_outputs(items: list[Any] | str, kind: str | dict[str,
         raise ValueError("Expected a list of request items and a supported tool-output kind.")
     if max_chars < 1:
         raise ValueError("TOKNIX_TOOL_OUTPUT_MAX_CHARS must be a positive integer.")
-    protected_start = len(items)
-    if kind == "chat":
-        protected_start = next((i for i in range(len(items) - 1, -1, -1)
-                                if isinstance(items[i], dict) and items[i].get("role") == "assistant"
-                                and items[i].get("tool_calls")), len(items))
-    elif kind == "responses":
-        protected_start = next((i for i in range(len(items) - 1, -1, -1)
-                                if isinstance(items[i], dict) and items[i].get("type") == "function_call"), len(items))
-    elif kind == "anthropic":
-        protected_start = next((i for i in range(len(items) - 1, -1, -1)
-                                if isinstance(items[i], dict) and items[i].get("role") == "assistant"
-                                and isinstance(items[i].get("content"), list)
-                                and any(isinstance(b, dict) and b.get("type") == "tool_use" for b in items[i]["content"])), len(items))
-    slots = _tool_output_slots(items, kind)
-    # A cache breakpoint protects the prefix up to and including its containing
-    # item. Never mutate tool output at/before the last breakpoint. Later output
-    # may be compacted, while history compaction has its own stricter cache guard.
-    cache_boundary = max(
-        (i for i, item in enumerate(items) if isinstance(item, dict) and _contains_cache_control(item)),
-        default=-1,
-    )
-    # Only reference output in the protected latest cycle, which survives compaction.
-    later: set[str] = set()
-    for index, owner, _key, raw_text in slots:
-        if index >= protected_start and index > cache_boundary and not _contains_cache_control(owner):
-            later.add(_ANSI_ESCAPE.sub("", raw_text).replace("\r\n", "\n").replace("\r", "\n"))
+    # Transform each complete tool result independently of its position in the
+    # conversation. The same raw output must become byte-identical text on every
+    # request, even when cache_control markers move or the output ages into history.
+    # Avoid position-dependent duplicate references because they break prefix stability.
     saved = 0
-    for index, owner, key, raw_text in slots:
-        # If the owner has its own breakpoint, preserve it even when the parent
-        # item would otherwise be considered post-boundary.
-        if index <= cache_boundary or _contains_cache_control(owner):
-            continue
+    for _index, owner, key, raw_text in _tool_output_slots(items, kind):
         cleaned = _ANSI_ESCAPE.sub("", raw_text).replace("\r\n", "\n").replace("\r", "\n")
-        if index < protected_start:
-            if cleaned in later and len(cleaned.strip()) >= 80:
-                replacement = _TOOL_OUTPUT_REFERENCE
-            elif len(cleaned) > max_chars:
-                replacement = _compress_tool_output_text(cleaned, max_chars=max_chars)
-            else:
-                replacement = cleaned
-            owner[key] = replacement
-            saved += max(0, len(raw_text) - len(replacement))
+        replacement = _compress_tool_output_text(cleaned, max_chars=max_chars) if len(cleaned) > max_chars else cleaned
+        owner[key] = replacement
+        saved += max(0, len(raw_text) - len(replacement))
     return saved
 
 
@@ -362,14 +330,15 @@ def _contains_cache_control(value: Any) -> bool:
 
 
 def _cache_protected_tool_output_count(items: list[Any], kind: str) -> int:
-    """Count tool-output slots kept unchanged because they fall inside a cache prefix."""
+    """Count long cache-marked outputs for diagnostics; these remain eligible for deterministic compaction."""
     boundary = max(
         (i for i, item in enumerate(items) if isinstance(item, dict) and _contains_cache_control(item)),
         default=-1,
     )
     return sum(
-        1 for index, owner, _key, _text in _tool_output_slots(items, kind)
-        if index <= boundary or _contains_cache_control(owner)
+        1 for index, owner, _key, text in _tool_output_slots(items, kind)
+        if (index <= boundary or _contains_cache_control(owner))
+        and len(text) > _DEFAULT_TOOL_OUTPUT_MAX_CHARS
     )
 
 
@@ -662,8 +631,8 @@ def transform_payload(
     empty: dict[str, int | bool] = _stats(0, 0)
     if tool_output_max_chars is None:
         tool_output_max_chars = _DEFAULT_TOOL_OUTPUT_MAX_CHARS
-    # Preserve cache-marked prefixes, but allow safe tool-output compaction after
-    # a breakpoint. Conversation compaction remains separately cache-conservative.
+    # Tool outputs use position-independent deterministic compaction, even inside
+    # cache-marked prefixes. Whole-history compaction remains cache-conservative.
     has_cache_control = _contains_cache_control(body)
     empty["cache_control_present"] = has_cache_control
     empty["cache_protected_tool_outputs"] = 0
