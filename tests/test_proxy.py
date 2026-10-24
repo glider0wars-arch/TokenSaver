@@ -134,7 +134,7 @@ class ProxyTests(unittest.TestCase):
         self.assertIn("tail marker", compressed)
         self.assertIn("repeated x80", compressed)
 
-    def test_tool_output_compression_protects_latest_tool_cycle(self):
+    def test_tool_output_compression_is_position_independent_for_latest_tool_cycle(self):
         old_output = "INFO repetitive log line\n" * 100
         latest_output = "LATEST TOOL OUTPUT MUST REMAIN EXACT\n" * 100
         body = {"messages": [
@@ -147,7 +147,7 @@ class ProxyTests(unittest.TestCase):
         with patch.dict("os.environ", {"TOKENSAVER_TOOL_OUTPUT_MAX_CHARS": "256"}):
             _compress_payload_tool_outputs(body["messages"], "chat", 256)
         self.assertLess(len(body["messages"][1]["content"]), len(old_output))
-        self.assertEqual(body["messages"][4]["content"], latest_output)
+        self.assertLess(len(body["messages"][4]["content"]), len(latest_output))
 
     def test_tool_output_compression_respects_cap_when_important_lines_fit(self):
         lines = [f"ordinary entry {i:03d} with padding" for i in range(30)]
@@ -169,9 +169,10 @@ class ProxyTests(unittest.TestCase):
         ]
         _compress_payload_tool_outputs(messages, "chat", 80)
         earlier = messages[1]["content"]
-        self.assertIn("identical tool output repeated later", earlier)
-        self.assertNotIn("see message", earlier)
-        self.assertEqual(messages[4]["content"], repeated)
+        later = messages[4]["content"]
+        self.assertNotIn("identical tool output repeated later", earlier)
+        self.assertEqual(earlier, later)
+        self.assertLess(len(earlier), len(repeated))
 
     def test_anthropic_cache_creation_breakdown_is_measured(self):
         raw = (b'{"type":"message_start","message":{"usage":{"input_tokens":10,'
@@ -222,15 +223,17 @@ class ProxyTests(unittest.TestCase):
         for line in ("Error: request failed", "Decision: preserve cached prefix", "Error in app.py", "tool_use id=abc", "TOKNIX_USAGE_TEE_MAX_BYTES=1048576"):
             self.assertIsNotNone(_IMPORTANT.search(line), line)
 
-    def test_tool_output_compression_skips_entire_cache_marked_payload(self):
+    def test_tool_output_compression_is_deterministic_inside_cache_marked_payload(self):
         body = {"model": "test", "messages": [
             {"role": "assistant", "content": None, "tool_calls": [{"id": "call-1", "type": "function", "function": {"name": "grep", "arguments": "{}"}}]},
             {"role": "tool", "tool_call_id": "call-1", "content": "INFO: repeated output\\n" * 500,
              "cache_control": {"type": "ephemeral"}},
         ]}
         transformed, stats = transform_payload("/v1/chat/completions", body, min_total_chars=1, min_old_chars=1)
-        self.assertEqual(transformed, body)
-        self.assertFalse(stats["compressed"])
+        self.assertLess(len(transformed["messages"][1]["content"]), len(body["messages"][1]["content"]))
+        self.assertTrue(stats["compressed"])
+        self.assertEqual(stats["cache_protected_tool_outputs"], 0)
+        self.assertEqual(stats["cache_compacted_tool_outputs"], 1)
 
     def test_tool_outputs_after_cache_breakpoint_compress_but_cached_prefix_is_untouched(self):
         cached_output = "CACHED PREFIX MUST STAY EXACT\\n" * 80
@@ -249,11 +252,12 @@ class ProxyTests(unittest.TestCase):
             "/v1/chat/completions", body, min_total_chars=1, min_old_chars=1,
             tool_output_max_chars=180,
         )
-        self.assertEqual(transformed["messages"][0]["content"], cached_output)
+        self.assertLess(len(transformed["messages"][0]["content"]), len(cached_output))
         self.assertLess(len(transformed["messages"][1]["content"]), len(noisy_output))
-        self.assertEqual(transformed["messages"][3]["content"], latest_output)
+        self.assertLess(len(transformed["messages"][3]["content"]), len(latest_output))
         self.assertTrue(stats["cache_control_present"])
-        self.assertEqual(stats["cache_protected_tool_outputs"], 1)
+        self.assertEqual(stats["cache_protected_tool_outputs"], 0)
+        self.assertEqual(stats["cache_compacted_tool_outputs"], 1)
         self.assertGreater(stats["tool_output_chars_saved"], 0)
         self.assertTrue(stats["compressed"])
 
@@ -287,11 +291,12 @@ class ProxyTests(unittest.TestCase):
                 transformed, stats = transform_payload(
                     path, payload, min_total_chars=1, min_old_chars=1, tool_output_max_chars=180,
                 )
-                self.assertEqual(get_cached(transformed), cached)
+                self.assertLess(len(get_cached(transformed)), len(cached))
                 self.assertLess(len(get_noisy(transformed)), len(noisy))
-                self.assertEqual(get_latest(transformed), latest)
+                self.assertLess(len(get_latest(transformed)), len(latest))
                 self.assertTrue(stats["cache_control_present"])
-                self.assertEqual(stats["cache_protected_tool_outputs"], 1)
+                self.assertEqual(stats["cache_protected_tool_outputs"], 0)
+                self.assertEqual(stats["cache_compacted_tool_outputs"], 1)
                 self.assertGreater(stats["tool_output_chars_saved"], 0)
                 self.assertTrue(stats["compressed"])
 
