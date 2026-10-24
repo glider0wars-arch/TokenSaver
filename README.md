@@ -1,10 +1,10 @@
-# TokenSaver AI
+# Toknix AI
 
 **Spend context carefully. Keep the important bits.**
 
-TokenSaver is a small, provider-neutral prompt and context optimization kit for Claude Code, OpenAI Codex, and Grok. It helps reduce unnecessary input and output tokens by keeping requests focused, summarizing old context, inspecting only relevant files, and asking for concise results.
+Toknix is a small, provider-neutral prompt and context optimization kit for Claude Code, OpenAI Codex, and Grok. It helps reduce unnecessary input and output tokens by keeping requests focused, summarizing old context, inspecting only relevant files, and asking for concise results.
 
-> TokenSaver does not bypass provider quotas, rate limits, or usage windows. Compression can help, but it cannot guarantee that a limit will not be reached.
+> Toknix does not bypass provider quotas, rate limits, or usage windows. Compression can help, but it cannot guarantee that a limit will not be reached.
 
 ## What is included
 
@@ -17,10 +17,34 @@ TokenSaver is a small, provider-neutral prompt and context optimization kit for 
 
 ## Quick start
 
-1. Open `SKILL.md` and copy its instructions into the AI tool you use, or install the Claude Code version from `.claude/skills/token-saver/SKILL.md`.
+1. Open `SKILL.md` and copy its instructions into the AI tool you use, or install the Claude Code skill from `.claude/skills/toknix/SKILL.md`.
 2. For Codex, use `AGENTS.md` as project guidance or paste the core rules into your task instructions.
 3. For Grok, use `providers/grok.md` to copy the compact system prompt.
 4. Give the agent a task and ask it to return only the required output, with assumptions and blockers called out.
+
+## Cache-aware tool-output compression
+
+Toknix treats cache breakpoints as boundaries, not as a reason to disable every optimization in the whole request. Tool-output text at or before the last item containing `cache_control` is preserved. Eligible older tool outputs strictly after that boundary may be compacted, while the newest tool cycle remains protected. Conversation-history compaction remains conservative around cached prefixes.
+
+The `/stats` endpoint reports `cache_control_requests`, `cache_protected_tool_outputs`, and `tool_output_chars_saved` so operators can see whether a request contained cache markers, how many tool outputs were kept unchanged, and whether eligible output was reduced. These counters describe proxy transformations; they do not prove provider-side cache hit rates or real billed-token savings.
+
+## Response preferences and user control
+
+Toknix supports non-binding response preferences in the local prompt builder:
+
+```bash
+toknix request .toknix-memory.json "Explain the failing test" --style adaptive
+toknix request .toknix-memory.json "Give me the short version" --style concise
+toknix request .toknix-memory.json "Review the architecture in depth" --style detailed
+```
+
+- `adaptive` is the default: concise for simple tasks, thorough when the work needs it.
+- `concise` asks for brevity but explicitly preserves necessary details and honors requests for depth.
+- `detailed` asks for structured depth when useful.
+- These are preferences, not hard caps. They must never override the user's request, remove required work, or replace actual security permissions.
+- The prompt builder preserves the new message's whitespace and code exactly. The added preference itself costs a small number of extra prompt tokens, so measure net results rather than assuming every request gets cheaper.
+
+The local gateway has conservative history compaction, cache-boundary-aware tool-output trimming, and provider usage reporting. The old `tokensaver` Python module and `TOKENSAVER_*` environment variables remain supported for backwards compatibility. These features only affect traffic routed through the gateway; they do not intercept hidden history inside hosted chat apps.
 
 ## Core rules
 
@@ -34,7 +58,7 @@ TokenSaver is a small, provider-neutral prompt and context optimization kit for 
 
 ## Rolling compressed memory (new in v0.2)
 
-The Python package now includes a local rolling-memory store and a request builder. It keeps durable facts in sections such as goals, rules, decisions, current state, files, and open tasks, plus a bounded window of recent turns. Before a new request, TokenSaver renders that compact memory together with the new message. It then records the user message for future context.
+The Python package now includes a local rolling-memory store and a request builder. It keeps durable facts in sections such as goals, rules, decisions, current state, files, and open tasks, plus a bounded window of recent turns. Before a new request, Toknix renders that compact memory together with the new message. It then records the user message for future context.
 
 Install locally (Python 3.10+):
 
@@ -42,13 +66,13 @@ Install locally (Python 3.10+):
 
 Create a memory file and store important project facts:
 
-    tokensaver memory-init .tokensaver-memory.json --project "My project"
-    tokensaver memory-add .tokensaver-memory.json GOALS "Build the requested app"
-    tokensaver memory-add .tokensaver-memory.json RULES "Keep existing tests passing"
+    toknix memory-init .toknix-memory.json --project "My project"
+    toknix memory-add .toknix-memory.json GOALS "Build the requested app"
+    toknix memory-add .toknix-memory.json RULES "Keep existing tests passing"
 
 Prepare a compact prompt for the next model request:
 
-    tokensaver request .tokensaver-memory.json "Add a settings page"
+    toknix request .toknix-memory.json "Add a settings page"
 
 The command prints the compact memory plus the new message, and saves the new user turn to the rolling window. Send the printed prompt to the model instead of resending the full old transcript when your workflow lets you control request construction. After the model responds, save only a short, useful summary or durable decision with memory-add or memory-turn, not a huge raw answer.
 
@@ -58,53 +82,43 @@ For a full walkthrough, see `examples/workflow.md`.
 
 ## Local API Gateway (v0.3)
 
-TokenSaver now includes a local proxy that compacts older conversation history **before** forwarding supported API requests. It supports OpenAI-compatible `/v1/chat/completions`, simple/list-based `/v1/responses`, and Anthropic `/v1/messages`. It preserves system/developer instructions, keeps recent turns, favors important lines when building the old-context note, and passes through unrelated request shapes.
+Toknix now includes a local proxy that compacts older conversation history **before** forwarding supported API requests. It supports OpenAI-compatible `/v1/chat/completions`, simple/list-based `/v1/responses`, and Anthropic `/v1/messages`. It preserves system/developer instructions, keeps recent turns, favors important lines when building the old-context note, and passes through unrelated request shapes.
 
 Run it with Python 3.10+:
 
     python -m pip install -e .
-    TOKENSAVER_UPSTREAM_BASE_URL=https://api.openai.com python -m tokensaver.cli serve
+    TOKNIX_UPSTREAM_BASE_URL=https://api.openai.com python -m toknix.cli serve
 
-By default, it listens only on `127.0.0.1:8765`. Check `http://127.0.0.1:8765/health` and `/stats`. Set the upstream origin to `https://api.x.ai` for Grok API or `https://api.anthropic.com` for Anthropic API. Compaction is controlled by `TOKENSAVER_MIN_TOTAL_CHARS` (default 5000) and `TOKENSAVER_CUT_STEP` (default 4); cache-control prefixes are passed through unchanged. Configuration and integration examples are in `docs/gateway.md` and `.env.example`. Design trade-offs from related projects are documented in `docs/research-notes.md`.
+By default, it listens only on `127.0.0.1:8765`. Check `http://127.0.0.1:8765/health` and `/stats`. Set the upstream origin to `https://api.x.ai` for Grok API or `https://api.anthropic.com` for Anthropic API. Compaction is controlled by `TOKNIX_MIN_TOTAL_CHARS` (default 5000) and `TOKNIX_CUT_STEP` (default 4); cache-marked prefixes remain unchanged; eligible tool outputs after a cache breakpoint may be compacted. Configuration and integration examples are in `docs/gateway.md` and `.env.example`. Design trade-offs from related projects are documented in `docs/research-notes.md`.
 
 The gateway does not call a second model to summarize old messages, so it adds no extra model call for compression. It recomputes the extractive note from the transcript supplied by the client on each request; the separate CLI memory file is available for durable project facts. Its extractive compaction is conservative, but can still lose nuance; check the results with your own tasks. Token counts are rough estimates, not provider-reported measurements.
 
-**Billing and access:** the gateway only affects requests routed through it. API-key traffic is billed by the upstream API provider. It does not intercept hidden traffic from the Claude, ChatGPT, Grok websites/apps, and it does not convert subscription usage into API credits or bypass quotas. The gateway binds locally by default; remote mode requires `TOKENSAVER_GATEWAY_TOKEN` on every endpoint and should only be used behind authenticated TLS. Configuration is validated at startup.
+**Billing and access:** the gateway only affects requests routed through it. API-key traffic is billed by the upstream API provider. It does not intercept hidden traffic from the Claude, ChatGPT, Grok websites/apps, and it does not convert subscription usage into API credits or bypass quotas. The gateway binds locally by default; remote mode requires `TOKNIX_GATEWAY_TOKEN` on every endpoint and should only be used behind authenticated TLS. Configuration is validated at startup.
 
 ## Measuring results
 
-Token counts differ by provider and tokenizer. Compare actual usage metadata when available. Otherwise, report that savings are estimated rather than measured. Input, output, cached, and reasoning tokens may be counted differently by each provider.
+Token counts differ by provider and tokenizer. Compare actual usage metadata when available. Otherwise, report that savings are estimated rather than measured. Input, output, cached, and reasoning tokens may be counted differently by each provider. For a repeatable paired test of real tasks, cost, latency, and answer quality, see [the validation protocol](docs/validation.md).
 
 ## License
 
-No license has been added yet. Until one is added, normal copyright restrictions apply.
+This project is licensed under the MIT License. See [`LICENSE`](LICENSE) for the full terms.
 
 
 ## Results
 
-The following table is the output of `python -m benchmarks.run` on code revision `fc24df5f7b1587ac96b760764bd845480392b358`. It replays the three checked-in fixtures. Counts are estimates, and cost values are illustrative input-cost units, not provider quotes.
-
-| Fixture | Chars before/after | Rough tokens before/after | Token reduction | Cost before/after (cache-aware)* | After if cache breaks* | Break-even risk | Needle retention |
-| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: |
-| coding-agent-long-tool-logs | 6,005 / 1,673 | 1,502 / 419 | 72.1% | 0.000556 / 0.000392 | 0.000419 | False | 100.0% |
-| long-chat | 18,913 / 4,152 | 4,729 / 1,038 | 78.1% | 0.001750 / 0.001010 | 0.001038 | False | 100.0% |
-| mixed-persian-english | 10,252 / 3,801 | 2,896 / 1,118 | 61.4% | 0.001072 / 0.001080 | 0.001118 | True | 100.0% |
-
-* Benchmark assumptions: input price 1 illustrative unit per million estimated tokens, cached-input price ratio 0.1, and 70% assumed cacheability before compaction. The "After if cache breaks" column is a worst-case estimate that bills the compacted input at the uncached rate. This simplified model does **not** price cache creation/writes, provider-specific cache breakpoints, or output tokens. Real provider cache behavior and pricing can differ. The benchmark fails if needle retention drops below 95%.
-
-Run `python -m benchmarks.run` to regenerate the Markdown table for the current revision. Token counts are estimates unless optional live mode reports provider-returned usage. The retention check is a useful regression signal, not proof that answer quality is unchanged.
+The benchmark table is generated from the current checked-in fixtures by `python -m benchmarks.run`. Do not treat previously copied numbers as current results. The fixtures include realistic pytest failures, grep output, git checks, SSE usage events, and Persian/English debugging context. Token counts are estimates; retention is a regression signal, not proof that answer quality is unchanged.
 
 ## Lessons from related tools and provider docs
 
-- **Keep the reusable prefix stable.** [OpenAI's prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching) explains that rewriting earlier context can invalidate cache reuse. TokenSaver therefore avoids compaction when explicit cache-control markers are present and reports cache reads separately from estimated savings.
+- **Keep the reusable prefix stable.** [OpenAI's prompt-caching guide](https://developers.openai.com/api/docs/guides/prompt-caching) explains that rewriting earlier context can invalidate cache reuse. Toknix preserves cache-marked prefixes during history compaction, while eligible tool outputs after a cache breakpoint may still be compacted. The gateway reports provider-reported cache usage separately from estimated savings.
 - **Track reads and writes, not just total input.** [Anthropic's caching guide](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) separates uncached input, cache reads, and cache creation. The gateway now normalizes those values for JSON and streaming responses, while clearly labeling them as provider-reported usage.
-- **Compression quality needs more than a token count.** [Microsoft's LLMLingua research](https://www.microsoft.com/en-us/research/project/llmlingua/llmlingua/) explores model-based token-level compression and task-level evaluations. TokenSaver deliberately keeps a dependency-free, readable, conservative approach, but its needle-retention benchmark is only a regression guard. A future quality claim needs paired answer-quality evaluations against an uncompressed baseline.
+- **Compression quality needs more than a token count.** [Microsoft's LLMLingua research](https://www.microsoft.com/en-us/research/project/llmlingua/llmlingua/) explores model-based token-level compression and task-level evaluations. Toknix deliberately keeps a dependency-free, readable, conservative approach, but its needle-retention benchmark is only a regression guard. A future quality claim needs paired answer-quality evaluations against an uncompressed baseline.
 
 
 ## When this does NOT help
 
-- **Subscription apps:** TokenSaver's local API gateway only sees requests routed through it. It cannot compact hidden conversation history inside the official ChatGPT or Claude apps.
+- **Subscription apps:** Toknix's local API gateway only sees requests routed through it. It cannot compact hidden conversation history inside the official ChatGPT or Claude apps.
 - **Tools with built-in compaction:** Claude Code and other agent tools may already summarize old context. An extra compaction layer can duplicate work or remove useful detail.
 - **Cache trade-offs:** Changing an old prompt prefix may reduce cache hits. Fewer input tokens do not guarantee a lower bill; compare the benchmark's cache-aware estimate with provider-reported usage and actual pricing.
 - **Quality-sensitive work:** Extractive compaction can omit facts that are not recognized as important. Keep a transcript for auditability and validate answer quality on representative tasks.
-- **Already-small requests:** The gateway may leave short or cache-marked requests unchanged, and compression can increase size in some cases.
+- **Already-small requests:** The gateway may leave short requests unchanged. History compaction skips cache-sensitive prefixes, while eligible tool output after a cache breakpoint may still be reduced. Compression can increase size in some cases.

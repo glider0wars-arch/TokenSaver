@@ -1,3 +1,3 @@
-"""TokenSaver: lightweight, local-first prompt and rolling-memory utilities."""
+"""Toknix: local-first token and context optimization utilities."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

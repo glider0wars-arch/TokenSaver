@@ -12,6 +12,14 @@ from pathlib import Path
 from typing import Any
 
 
+def _env_value(name: str, default: str | None = None) -> str | None:
+    """Prefer TOKNIX_* settings while accepting the old TOKENSAVER_* prefix."""
+    if name.startswith("TOKNIX_"):
+        legacy_name = "TOKENSAVER_" + name[len("TOKNIX_"):]
+        return os.environ.get(name, os.environ.get(legacy_name, default))
+    return os.environ.get(name, default)
+
+
 CATEGORIES = ("GOALS", "RULES", "DECISIONS", "CURRENT_STATE", "FILES", "OPEN_TASKS", "RECENT_CONTEXT")
 
 
@@ -119,9 +127,9 @@ class RollingMemory:
         if not content:
             return
         try:
-            max_turn_chars = max(1, int(os.getenv("TOKENSAVER_MAX_TURN_CHARS", "2000")))
+            max_turn_chars = max(1, int(_env_value("TOKNIX_MAX_TURN_CHARS", "2000")))
         except ValueError as exc:
-            raise ValueError("TOKENSAVER_MAX_TURN_CHARS must be a positive integer.") from exc
+            raise ValueError("TOKNIX_MAX_TURN_CHARS must be a positive integer.") from exc
         content = content[:max_turn_chars]
         old_sections = {name: list(values) for name, values in self.sections.items()}
         old_turns = [dict(turn) for turn in self.recent_turns]
@@ -136,7 +144,7 @@ class RollingMemory:
             raise
 
     def render(self, *, include_recent: bool = True) -> str:
-        lines = ["# TOKENSAVER MEMORY"]
+        lines = ["# TOKNIX MEMORY"]
         if self.project.strip():
             lines.append(f"PROJECT: {self.project.strip()}")
         for category in CATEGORIES:
@@ -174,7 +182,7 @@ class RollingMemory:
     def load(cls, path: str | Path) -> "RollingMemory":
         target = Path(path).expanduser()
         if not target.exists():
-            raise FileNotFoundError(f"Memory file not found: {target}. Create it with 'tokensaver memory-init {target}'.")
+            raise FileNotFoundError(f"Memory file not found: {target}. Create it with 'toknix memory-init {target}'.")
         try:
             raw: dict[str, Any] = json.loads(target.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -317,13 +325,16 @@ def memory_file_lock(path: str | Path, *, stale_after: float = 60.0, timeout: fl
             pass
 
 
-def build_request(memory: RollingMemory, new_message: str) -> str:
-    """Build a prompt from compact memory and one new message without flattening it."""
+def build_request(memory: RollingMemory, new_message: str, *, response_style: str = "adaptive") -> str:
+    """Build a compact prompt while keeping the user's newest message exactly intact."""
+    from .preferences import response_style_guidance
+
+    nl = chr(10)
     sections = memory.render(include_recent=True)
-    # The caller’s newest instruction is authoritative: never rewrite its whitespace or code.
-    message = new_message
-    parts = []
+    guidance = response_style_guidance(response_style)
+    # This is a non-binding preference, not a limit on reasoning or task completion.
+    parts = [f"[TOKNIX RESPONSE PREFERENCE: {response_style.strip().lower()}]{nl}{guidance}"]
     if sections:
-        parts.append("[COMPRESSED MEMORY]\n" + sections)
-    parts.append("[NEW MESSAGE]\n" + message)
-    return "\n\n".join(parts)
+        parts.append("[COMPRESSED MEMORY]" + nl + sections)
+    parts.append("[NEW MESSAGE]" + nl + new_message)
+    return (nl + nl).join(parts)

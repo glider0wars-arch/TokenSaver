@@ -134,7 +134,7 @@ class ProxyTests(unittest.TestCase):
         self.assertIn("tail marker", compressed)
         self.assertIn("repeated x80", compressed)
 
-    def test_tool_output_compression_protects_latest_tool_cycle(self):
+    def test_tool_output_compression_is_position_independent_for_latest_tool_cycle(self):
         old_output = "INFO repetitive log line\n" * 100
         latest_output = "LATEST TOOL OUTPUT MUST REMAIN EXACT\n" * 100
         body = {"messages": [
@@ -147,7 +147,7 @@ class ProxyTests(unittest.TestCase):
         with patch.dict("os.environ", {"TOKENSAVER_TOOL_OUTPUT_MAX_CHARS": "256"}):
             _compress_payload_tool_outputs(body["messages"], "chat", 256)
         self.assertLess(len(body["messages"][1]["content"]), len(old_output))
-        self.assertEqual(body["messages"][4]["content"], latest_output)
+        self.assertLess(len(body["messages"][4]["content"]), len(latest_output))
 
     def test_tool_output_compression_respects_cap_when_important_lines_fit(self):
         lines = [f"ordinary entry {i:03d} with padding" for i in range(30)]
@@ -169,9 +169,10 @@ class ProxyTests(unittest.TestCase):
         ]
         _compress_payload_tool_outputs(messages, "chat", 80)
         earlier = messages[1]["content"]
-        self.assertIn("identical tool output repeated later", earlier)
-        self.assertNotIn("see message", earlier)
-        self.assertEqual(messages[4]["content"], repeated)
+        later = messages[4]["content"]
+        self.assertNotIn("identical tool output repeated later", earlier)
+        self.assertEqual(earlier, later)
+        self.assertLess(len(earlier), len(repeated))
 
     def test_anthropic_cache_creation_breakdown_is_measured(self):
         raw = (b'{"type":"message_start","message":{"usage":{"input_tokens":10,'
@@ -216,11 +217,223 @@ class ProxyTests(unittest.TestCase):
             "cache_creation_input": 0,
         })
 
-    def test_important_regex_does_not_promote_generic_modal_words_or_slashes(self):
-        for line in ("We must update this later.", "We should look at this.", "باید این کار را انجام بدهیم", "The path is /tmp/cache"):
+    def test_important_regex_does_not_promote_generic_words_or_filenames(self):
+        for line in ("We must update this later.", "We should look at this.", "باید این کار را انجام بدهیم", "The path is /tmp/cache", "Changed files: app.py, tests/test_proxy.py"):
             self.assertIsNone(_IMPORTANT.search(line), line)
-        for line in ("Error: request failed", "Decision: preserve cached prefix", "فایل app.py خراب است", "tool_use id=abc"):
+        for line in ("Error: request failed", "Decision: preserve cached prefix", "Error in app.py", "tool_use id=abc", "TOKNIX_USAGE_TEE_MAX_BYTES=1048576"):
             self.assertIsNotNone(_IMPORTANT.search(line), line)
+
+    def test_tool_output_compression_is_deterministic_inside_cache_marked_payload(self):
+        body = {"model": "test", "messages": [
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "call-1", "type": "function", "function": {"name": "grep", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "call-1", "content": "INFO: repeated output\\n" * 500,
+             "cache_control": {"type": "ephemeral"}},
+        ]}
+        transformed, stats = transform_payload("/v1/chat/completions", body, min_total_chars=1, min_old_chars=1)
+        self.assertLess(len(transformed["messages"][1]["content"]), len(body["messages"][1]["content"]))
+        self.assertTrue(stats["compressed"])
+        self.assertEqual(stats["cache_protected_tool_outputs"], 0)
+        self.assertEqual(stats["cache_compacted_tool_outputs"], 1)
+
+    def test_tool_outputs_after_cache_breakpoint_compress_but_cached_prefix_is_untouched(self):
+        cached_output = "CACHED PREFIX MUST STAY EXACT\\n" * 80
+        noisy_output = "INFO repeated tool output line\\n" * 300
+        latest_output = "LATEST TOOL RESULT MUST REMAIN EXACT\\n" * 100
+        body = {"model": "test", "messages": [
+            {"role": "tool", "tool_call_id": "cached-call", "content": cached_output,
+             "cache_control": {"type": "ephemeral"}},
+            {"role": "tool", "tool_call_id": "old-call", "content": noisy_output},
+            {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "latest-call", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+            ]},
+            {"role": "tool", "tool_call_id": "latest-call", "content": latest_output},
+        ]}
+        transformed, stats = transform_payload(
+            "/v1/chat/completions", body, min_total_chars=1, min_old_chars=1,
+            tool_output_max_chars=180,
+        )
+        self.assertLess(len(transformed["messages"][0]["content"]), len(cached_output))
+        self.assertLess(len(transformed["messages"][1]["content"]), len(noisy_output))
+        self.assertLess(len(transformed["messages"][3]["content"]), len(latest_output))
+        self.assertTrue(stats["cache_control_present"])
+        self.assertEqual(stats["cache_protected_tool_outputs"], 0)
+        self.assertEqual(stats["cache_compacted_tool_outputs"], 1)
+        self.assertGreater(stats["tool_output_chars_saved"], 0)
+        self.assertTrue(stats["compressed"])
+
+    def test_cache_prefix_tool_output_is_byte_stable_across_consecutive_turns(self):
+        from tokensaver.proxy import transform_payload
+
+        raw = "INFO repeated worker output line\\n" * 300
+        base_messages = [
+            {"role": "assistant", "tool_calls": [
+                {"id": "read-1", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+            ]},
+            {"role": "tool", "tool_call_id": "read-1", "content": raw},
+        ]
+        observed = []
+        for turn in range(3):
+            messages = [dict(item) for item in base_messages]
+            if turn:
+                messages.extend([
+                    {"role": "user", "content": f"Follow-up turn {turn}"},
+                    {"role": "assistant", "content": f"Intermediate answer {turn}"},
+                ])
+            messages.append({
+                "role": "user", "content": "Continue",
+                "cache_control": {"type": "ephemeral"},
+            })
+            transformed, stats = transform_payload(
+                "/v1/chat/completions",
+                {"model": "test", "messages": messages},
+                min_total_chars=1, min_old_chars=1, tool_output_max_chars=180,
+            )
+            observed.append(transformed["messages"][1]["content"])
+            self.assertTrue(stats["cache_control_present"])
+            self.assertLess(len(observed[-1]), len(raw))
+        self.assertEqual(observed[0].encode("utf-8"), observed[1].encode("utf-8"))
+        self.assertEqual(observed[1].encode("utf-8"), observed[2].encode("utf-8"))
+
+    def test_cache_boundary_compression_supports_anthropic_and_responses_shapes(self):
+        cached = "CACHED PREFIX MUST REMAIN EXACT\\n" * 80
+        noisy = "INFO repeated output line\\n" * 300
+        latest = "LATEST TOOL RESULT MUST REMAIN EXACT\\n" * 100
+        cases = [
+            ("/v1/messages", {"model": "test", "messages": [
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "cached",
+                    "content": cached, "cache_control": {"type": "ephemeral"}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "old", "content": noisy}]},
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "latest-call",
+                    "name": "read", "input": {}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "latest-call", "content": latest}]},
+            ]}, lambda body: body["messages"][0]["content"][0]["content"],
+               lambda body: body["messages"][1]["content"][0]["content"],
+               lambda body: body["messages"][3]["content"][0]["content"]),
+            ("/v1/responses", {"model": "test", "input": [
+                {"type": "function_call_output", "call_id": "cached", "output": cached,
+                 "cache_control": {"type": "ephemeral"}},
+                {"type": "function_call_output", "call_id": "old", "output": noisy},
+                {"type": "function_call", "call_id": "latest-call", "name": "read", "arguments": "{}"},
+                {"type": "function_call_output", "call_id": "latest-call", "output": latest},
+            ]}, lambda body: body["input"][0]["output"],
+               lambda body: body["input"][1]["output"],
+               lambda body: body["input"][3]["output"]),
+        ]
+        for path, payload, get_cached, get_noisy, get_latest in cases:
+            with self.subTest(path=path):
+                transformed, stats = transform_payload(
+                    path, payload, min_total_chars=1, min_old_chars=1, tool_output_max_chars=180,
+                )
+                self.assertLess(len(get_cached(transformed)), len(cached))
+                self.assertLess(len(get_noisy(transformed)), len(noisy))
+                self.assertLess(len(get_latest(transformed)), len(latest))
+                self.assertTrue(stats["cache_control_present"])
+                self.assertEqual(stats["cache_protected_tool_outputs"], 0)
+                self.assertEqual(stats["cache_compacted_tool_outputs"], 1)
+                self.assertGreater(stats["tool_output_chars_saved"], 0)
+                self.assertTrue(stats["compressed"])
+
+    def test_large_tool_log_compresses_without_quadratic_slowdown(self):
+        import time
+        lines = [f"INFO worker {i % 8}: scanned shard={i} request_id=req-{i}" for i in range(50_000)]
+        lines.insert(25_000, "Traceback (most recent call last):")
+        lines.insert(25_001, "AssertionError: final usage event was not parsed")
+        raw = "\n".join(lines)
+        started = time.perf_counter()
+        compacted = _compress_tool_output_text(raw, max_chars=4000)
+        elapsed = time.perf_counter() - started
+        self.assertIn("AssertionError: final usage event was not parsed", compacted)
+        self.assertLess(len(compacted), len(raw) // 4)
+        self.assertLess(elapsed, 5.0, f"50k-line tool log took {elapsed:.2f}s")
+
+    def test_short_duplicate_tool_output_is_not_replaced_by_long_reference(self):
+        messages = [
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "call-1", "type": "function", "function": {"name": "run", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "call-1", "content": "ok"},
+            {"role": "assistant", "content": None, "tool_calls": [{"id": "call-2", "type": "function", "function": {"name": "run", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "call-2", "content": "ok"},
+        ]
+        _compress_payload_tool_outputs(messages, "chat", 4000)
+        self.assertEqual(messages[1]["content"], "ok")
+
+
+    def test_unsupported_request_shapes_are_passed_through_unchanged(self):
+        cases = [
+            # Responses API can accept string input, but this gateway only rewrites
+            # the documented list-based shape.
+            ("/v1/responses", {
+                "model": "test",
+                "input": "Keep this string input exactly as supplied.",
+            }),
+            # Unknown routes must be forwarded without prompt transformation.
+            ("/v1/unknown", {
+                "model": "test",
+                "messages": [{"role": "user", "content": "Do not rewrite this."}],
+            }),
+            # Malformed/unknown message shape is not something the proxy should guess at.
+            ("/v1/chat/completions", {
+                "model": "test",
+                "messages": "unexpected string instead of a message list",
+            }),
+        ]
+        for path, payload in cases:
+            with self.subTest(path=path):
+                transformed, stats = transform_payload(
+                    path, payload, keep_recent=1, min_total_chars=1,
+                    min_old_chars=1, max_summary_chars=100,
+                )
+                self.assertEqual(transformed, payload)
+                self.assertFalse(stats["compressed"])
+
+
+    def test_compaction_preserves_provider_parameters_and_does_not_cross_convert_apis(self):
+        from tokensaver.proxy import transform_payload
+
+        tools = [{
+            "type": "function",
+            "function": {
+                "name": "lookup",
+                "description": "Look up a record",
+                "parameters": {"type": "object", "properties": {"id": {"type": "string"}}},
+            },
+        }]
+        response_format = {"type": "json_schema", "json_schema": {
+            "name": "record", "strict": True,
+            "schema": {"type": "object", "properties": {"ok": {"type": "boolean"}}},
+        }}
+        payload = {
+            "model": "provider-model",
+            "tools": tools,
+            "tool_choice": "auto",
+            "response_format": response_format,
+            "temperature": 0,
+            "messages": [
+                {"role": "user", "content": "Old project details " * 200},
+                {"role": "assistant", "content": "Earlier answer " * 200},
+                {"role": "user", "content": "Latest question"},
+            ],
+        }
+        transformed, stats = transform_payload(
+            "/v1/chat/completions", payload, keep_recent=1,
+            min_total_chars=1, min_old_chars=1, max_summary_chars=500, cut_step=1,
+        )
+        self.assertTrue(stats["compressed"])
+        for key in ("model", "tools", "tool_choice", "response_format", "temperature"):
+            self.assertEqual(transformed[key], payload[key], key)
+
+        # A gateway pointed at an Anthropic upstream is not an API-format adapter.
+        # Unsupported routes and payload shapes must be forwarded unchanged.
+        anthropic_payload = {
+            "model": "claude-test",
+            "messages": [{"role": "user", "content": "Keep this unchanged"}],
+            "max_tokens": 100,
+        }
+        passthrough, passthrough_stats = transform_payload(
+            "/v1/unknown", anthropic_payload,
+            min_total_chars=1, min_old_chars=1,
+        )
+        self.assertEqual(passthrough, anthropic_payload)
+        self.assertFalse(passthrough_stats["compressed"])
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
-# TokenSaver Gateway
+# Toknix Gateway
 
-TokenSaver Gateway is a local HTTP proxy. It receives an API request, replaces eligible older conversation turns with a compact extractive context note, and forwards the modified request to the configured provider. The latest messages and system/developer instructions are preserved. Recent tool-call cycles are kept together when detected.
+Toknix Gateway is a local HTTP proxy. It receives an API request, replaces eligible older conversation turns with a compact extractive context note, and forwards the modified request to the configured provider. The latest messages and system/developer instructions are preserved. Recent tool-call cycles are kept together when detected.
 
 It supports these request shapes:
 
@@ -15,7 +15,7 @@ Other routes are passed through without prompt compaction. Streaming responses a
 Python 3.10+ is required. From the repository root:
 
     python -m pip install -e .
-    TOKENSAVER_UPSTREAM_BASE_URL=https://api.openai.com python -m tokensaver.cli serve
+    TOKNIX_UPSTREAM_BASE_URL=https://api.openai.com python -m toknix.cli serve
 
 The gateway listens on `127.0.0.1:8765` by default. Check it with:
 
@@ -24,11 +24,11 @@ The gateway listens on `127.0.0.1:8765` by default. Check it with:
 
 Set the upstream origin for one gateway instance:
 
-- OpenAI API: `TOKENSAVER_UPSTREAM_BASE_URL=https://api.openai.com`
-- xAI/Grok API: `TOKENSAVER_UPSTREAM_BASE_URL=https://api.x.ai`
-- Anthropic API: `TOKENSAVER_UPSTREAM_BASE_URL=https://api.anthropic.com`
+- OpenAI API: `TOKNIX_UPSTREAM_BASE_URL=https://api.openai.com`
+- xAI/Grok API: `TOKNIX_UPSTREAM_BASE_URL=https://api.x.ai`
+- Anthropic API: `TOKNIX_UPSTREAM_BASE_URL=https://api.anthropic.com`
 
-If your client already sends a valid provider API key, the proxy forwards its authorization headers. Alternatively set `TOKENSAVER_UPSTREAM_API_KEY` in the server process environment to override the upstream key. Never commit real API keys.
+If your client already sends a valid provider API key, the proxy forwards its authorization headers. Alternatively set `TOKNIX_UPSTREAM_API_KEY` in the server process environment to override the upstream key. Never commit real API keys.
 
 ### OpenAI-compatible Python client example
 
@@ -47,38 +47,47 @@ If your client already sends a valid provider API key, the proxy forwards its au
     )
     print(response.choices[0].message.content)
 
-For Grok, the OpenAI-compatible client can use the local base URL while TokenSaver's upstream is set to `https://api.x.ai`. The upstream API key and API billing still apply.
+For Grok, the OpenAI-compatible client can use the local base URL while Toknix's upstream is set to `https://api.x.ai`. The upstream API key and API billing still apply.
 
 ### Claude Code / Anthropic API
 
-Start TokenSaver with `TOKENSAVER_UPSTREAM_BASE_URL=https://api.anthropic.com`. In the Claude Code shell, configure the supported custom API base URL for your installed version to `http://127.0.0.1:8765`, then launch Claude Code. Use an Anthropic API credential for API-based routing. Claude Code authentication modes and custom-base-URL behavior vary by version, so verify the current Anthropic documentation before changing your normal setup.
+Start Toknix with `TOKNIX_UPSTREAM_BASE_URL=https://api.anthropic.com`. In the Claude Code shell, configure the supported custom API base URL for your installed version to `http://127.0.0.1:8765`, then launch Claude Code. Use an Anthropic API credential for API-based routing. Claude Code authentication modes and custom-base-URL behavior vary by version, so verify the current Anthropic documentation before changing your normal setup.
 
 **Subscription caveat:** routing through the Anthropic API uses API billing; it does not turn a Claude Pro/Max subscription into API credits. Likewise, this gateway does not intercept hidden traffic from the Claude, ChatGPT, or Grok websites/apps.
 
 ### Codex
 
-The gateway can compact simple Responses API message lists. If your Codex version supports a custom OpenAI-compatible Responses API base URL, point it at `http://127.0.0.1:8765/v1` and configure TokenSaver's upstream to OpenAI. Test tool-heavy requests carefully before relying on it. The proxy intentionally avoids rewriting unsupported payload shapes.
+The gateway can compact simple Responses API message lists. If your Codex version supports a custom OpenAI-compatible Responses API base URL, point it at `http://127.0.0.1:8765/v1` and configure Toknix's upstream to OpenAI. Test tool-heavy requests carefully before relying on it. The proxy intentionally avoids rewriting unsupported payload shapes.
 
 Codex authentication and supported provider configuration depend on the product/version. API-key routing uses API billing and is distinct from subscription-managed traffic.
 
 ## Compaction behavior
 
 - System/developer instructions are retained.
-- The most recent messages are preserved, configurable with `TOKENSAVER_KEEP_RECENT_MESSAGES` (default 8). The cut is bucketed by `TOKENSAVER_CUT_STEP` (default 4) to keep the compacted prefix stable across consecutive turns within the same bucket.
-- Compaction only runs when the full request exceeds `TOKENSAVER_MIN_TOTAL_CHARS` (default 5000) and the older portion exceeds `TOKENSAVER_MIN_OLD_CHARS` (default 1200).
-- Requests with cache-control markers in the system or candidate old prefix are passed through unchanged to avoid disrupting provider prompt caching.
+- The most recent messages are preserved, configurable with `TOKNIX_KEEP_RECENT_MESSAGES` (default 8). The cut is bucketed by `TOKNIX_CUT_STEP` (default 4) to keep the compacted prefix stable across consecutive turns within the same bucket.
+- Compaction only runs when the full request exceeds `TOKNIX_MIN_TOTAL_CHARS` (default 5000) and the older portion exceeds `TOKNIX_MIN_OLD_CHARS` (default 1200).
+- History compaction is skipped when cache-control markers appear in static system/instructions or the candidate old-history prefix, avoiding edits that could invalidate cache reuse. Tool outputs use a separate deterministic first-sight transform: every eligible complete output is normalized/compacted based only on its own text, even inside a cache-marked prefix or the latest tool cycle. The same raw output and settings therefore produce byte-identical output on later turns. Position-dependent duplicate-output references are deliberately not used because they would make an output depend on what else appeared later in the request.
 - Old history is converted into a deterministic extractive note that favors errors, decisions, constraints, file paths, TODOs, and important lines.
 - If the history is short or the compacted request would not be smaller, the original request is forwarded.
 - Tool outputs in the retained recent window are not rewritten. Older tool history may be summarized.
-- Token counts shown by `/stats` are rough character-based estimates, not provider-reported usage.
+- `/stats` distinguishes proxy-side transformation counters from provider-reported usage. `cache_compacted_tool_outputs` counts outputs in the cache-marked prefix that were eligible for deterministic compaction; `cache_protected_tool_outputs` remains as a legacy compatibility counter and should be zero for eligible outputs after this change. Character-based token estimates are rough estimates, not provider tokenizer counts. Legacy `TOKENSAVER_*` environment variables remain accepted when the corresponding `TOKNIX_*` variable is unset.
 
-This is intentionally safer and less aggressive than learned token-pruning methods such as LLMLingua. Extractive compaction can still lose nuance; test against your actual tasks and lower compression settings if quality suffers. For stronger semantic memory, use a dedicated summarizer and account for the additional model call/cost.
+This is intentionally safer and less aggressive than learned token-pruning methods such as LLMLingua. Extractive compaction can still lose nuance; test against your actual tasks and lower compression settings if quality suffers. The automated HTTP tests cover SSE body passthrough and upstream error responses, but they do not prove compatibility with every provider or every streaming event shape. If an upstream connection fails before response headers, Toknix returns a 502; if it fails after streaming has begun, the response has already started and the proxy can only close the connection. For a repeatable paired test of real tasks, cost, latency, and answer quality, see [the validation protocol](validation.md). For stronger semantic memory, use a dedicated summarizer and account for the additional model call/cost.
+
+### Request, streaming, and provider-compatibility boundaries
+
+- The HTTP handler reads the request body once using the incoming `Content-Length`, enforces `TOKNIX_MAX_BODY_BYTES`, and forwards the original bytes if JSON parsing fails or the payload is outside a supported shape. Toknix does not consume an asynchronous request stream and then attempt to reuse it; this implementation is a synchronous `BaseHTTPRequestHandler` gateway.
+- Toknix is a same-provider pass-through/compaction proxy, not a cross-provider schema translator. It does not convert OpenAI Chat Completions payloads into Anthropic Messages payloads or vice versa. Point the upstream URL at a provider compatible with the endpoint and request format your client sends.
+- For supported payloads, compaction targets message/input history and tool-output text; top-level generation parameters such as `tools`, `tool_choice`, `response_format`, and `temperature` should remain intact. Provider-specific fields not understood by Toknix are not intentionally translated. Test advanced provider features against the exact provider/model you use.
+- The response body is relayed using HTTP chunk framing while reading upstream data with `read1` for low-latency streaming. If writing to the client fails (for example, a disconnect raises `BrokenPipeError`), the forwarding path exits and closes the upstream connection in `finally`. This is connection cancellation by closing the upstream socket, not a provider-level `AbortController`.
+- Toknix does not automatically retry a request after an upstream failure. Before response headers are sent, it can return a 502; after streaming starts, it cannot safely restart the generation without risking duplicated or inconsistent output, so it closes the connection instead.
+- The proxy does not claim universal SSE compatibility: provider event shapes, usage fields, tool semantics, and unusual payload variants need provider-specific integration tests. Current tests are regression coverage for known cases, not proof of compatibility with every API version.
 
 ## Security
 
 - The server binds to loopback by default.
-- Remote binding is refused unless `TOKENSAVER_ALLOW_REMOTE=1`; do not enable it on a public interface without an authenticated TLS reverse proxy.
+- Remote binding is refused unless `TOKNIX_ALLOW_REMOTE=1`; do not enable it on a public interface without an authenticated TLS reverse proxy.
 - Do not log request bodies or API keys. Access logging is off by default.
-- Every environment setting is validated at startup with a clear error. Remote mode requires `TOKENSAVER_GATEWAY_TOKEN` and authenticates every endpoint, including `/health` and `/stats`.
+- Every environment setting is validated at startup with a clear error. Remote mode requires `TOKNIX_GATEWAY_TOKEN` and authenticates every endpoint, including `/health` and `/stats`, using the `X-Toknix-Token` request header. The old `X-TokenSaver-Token` header is still accepted for existing clients.
 - Use only trusted local clients. Other processes running as your user may be able to access the local port.
 - The proxy forwards requests to the configured upstream. Choose the upstream deliberately and avoid sending secrets you would not send directly to that provider.
