@@ -330,16 +330,24 @@ def _contains_cache_control(value: Any) -> bool:
 
 
 def _cache_protected_tool_output_count(items: list[Any], kind: str) -> int:
-    """Count long cache-marked outputs for diagnostics; these remain eligible for deterministic compaction."""
+    """Compatibility metric: cache markers no longer protect eligible tool outputs."""
+    return 0
+
+
+def _cache_compacted_tool_output_count(items: list[Any], kind: str, max_chars: int) -> int:
+    """Count cache-prefix tool outputs that deterministic first-sight compaction can shrink."""
     boundary = max(
         (i for i, item in enumerate(items) if isinstance(item, dict) and _contains_cache_control(item)),
         default=-1,
     )
-    return sum(
-        1 for index, owner, _key, text in _tool_output_slots(items, kind)
-        if (index <= boundary or _contains_cache_control(owner))
-        and len(text) > _DEFAULT_TOOL_OUTPUT_MAX_CHARS
-    )
+    count = 0
+    for index, owner, _key, raw_text in _tool_output_slots(items, kind):
+        if index > boundary and not _contains_cache_control(owner):
+            continue
+        cleaned = _ANSI_ESCAPE.sub("", raw_text).replace("\r\n", "\n").replace("\r", "\n")
+        if len(cleaned) > max_chars and _compress_tool_output_text(cleaned, max_chars=max_chars) != raw_text:
+            count += 1
+    return count
 
 
 def _select_summary_lines(text: str, budget: int) -> str:
@@ -636,8 +644,10 @@ def transform_payload(
     has_cache_control = _contains_cache_control(body)
     empty["cache_control_present"] = has_cache_control
     empty["cache_protected_tool_outputs"] = 0
+    empty["cache_compacted_tool_outputs"] = 0
     if path.endswith("/chat/completions") and isinstance(body.get("messages"), list):
-        original_messages = body["messages"]
+        original_messages = copy.deepcopy(body["messages"])
+        cache_compacted = _cache_compacted_tool_output_count(original_messages, "chat", tool_output_max_chars)
         saved = _compress_payload_tool_outputs(body["messages"], "chat", tool_output_max_chars)
         body["messages"], stats = compact_chat_messages(
             body["messages"], keep_recent=keep_recent, max_summary_chars=max_summary_chars,
@@ -645,13 +655,15 @@ def transform_payload(
         stats["tool_output_chars_saved"] = saved
         stats["cache_control_present"] = has_cache_control
         stats["cache_protected_tool_outputs"] = _cache_protected_tool_output_count(original_messages, "chat")
+        stats["cache_compacted_tool_outputs"] = cache_compacted
         stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
         stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
         if saved:
             stats["compressed"] = True
         return body, stats
     if path.endswith("/messages") and isinstance(body.get("messages"), list):
-        original_messages = body["messages"]
+        original_messages = copy.deepcopy(body["messages"])
+        cache_compacted = _cache_compacted_tool_output_count(original_messages, "anthropic", tool_output_max_chars)
         saved = _compress_payload_tool_outputs(body["messages"], "anthropic", tool_output_max_chars)
         compacted, stats = compact_anthropic_messages(
             body["messages"], system=body.get("system"), keep_recent=keep_recent,
@@ -660,6 +672,7 @@ def transform_payload(
         stats["tool_output_chars_saved"] = saved
         stats["cache_control_present"] = has_cache_control
         stats["cache_protected_tool_outputs"] = _cache_protected_tool_output_count(original_messages, "anthropic")
+        stats["cache_compacted_tool_outputs"] = cache_compacted
         stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
         stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
         if not stats.get("compressed"):
@@ -677,7 +690,8 @@ def transform_payload(
             body["system"] = summary_text
         return body, stats
     if path.endswith("/responses") and isinstance(body.get("input"), list):
-        original_input = body["input"]
+        original_input = copy.deepcopy(body["input"])
+        cache_compacted = _cache_compacted_tool_output_count(original_input, "responses", tool_output_max_chars)
         saved = _compress_payload_tool_outputs(body["input"], "responses", tool_output_max_chars)
         body["input"], stats = compact_response_input(
             body["input"], keep_recent=keep_recent, max_summary_chars=max_summary_chars,
@@ -685,6 +699,7 @@ def transform_payload(
         stats["tool_output_chars_saved"] = saved
         stats["cache_control_present"] = has_cache_control
         stats["cache_protected_tool_outputs"] = _cache_protected_tool_output_count(original_input, "responses")
+        stats["cache_compacted_tool_outputs"] = cache_compacted
         stats["before_chars"] = int(stats.get("before_chars", 0)) + saved
         stats["chars_saved"] = int(stats.get("chars_saved", 0)) + saved
         if saved:
