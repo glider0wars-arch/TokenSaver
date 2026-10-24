@@ -261,6 +261,39 @@ class ProxyTests(unittest.TestCase):
         self.assertGreater(stats["tool_output_chars_saved"], 0)
         self.assertTrue(stats["compressed"])
 
+    def test_cache_prefix_tool_output_is_byte_stable_across_consecutive_turns(self):
+        from tokensaver.proxy import transform_payload
+
+        raw = "INFO repeated worker output line\\n" * 300
+        base_messages = [
+            {"role": "assistant", "tool_calls": [
+                {"id": "read-1", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+            ]},
+            {"role": "tool", "tool_call_id": "read-1", "content": raw},
+        ]
+        observed = []
+        for turn in range(3):
+            messages = [dict(item) for item in base_messages]
+            if turn:
+                messages.extend([
+                    {"role": "user", "content": f"Follow-up turn {turn}"},
+                    {"role": "assistant", "content": f"Intermediate answer {turn}"},
+                ])
+            messages.append({
+                "role": "user", "content": "Continue",
+                "cache_control": {"type": "ephemeral"},
+            })
+            transformed, stats = transform_payload(
+                "/v1/chat/completions",
+                {"model": "test", "messages": messages},
+                min_total_chars=1, min_old_chars=1, tool_output_max_chars=180,
+            )
+            observed.append(transformed["messages"][1]["content"])
+            self.assertTrue(stats["cache_control_present"])
+            self.assertLess(len(observed[-1]), len(raw))
+        self.assertEqual(observed[0].encode("utf-8"), observed[1].encode("utf-8"))
+        self.assertEqual(observed[1].encode("utf-8"), observed[2].encode("utf-8"))
+
     def test_cache_boundary_compression_supports_anthropic_and_responses_shapes(self):
         cached = "CACHED PREFIX MUST REMAIN EXACT\\n" * 80
         noisy = "INFO repeated output line\\n" * 300
