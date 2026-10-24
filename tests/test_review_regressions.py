@@ -203,7 +203,7 @@ class ReviewRegressionTests(unittest.TestCase):
         self.assertIn("خطا: جزئیات مهم", result)
         self.assertIn("omitted]", result)
 
-    def test_tool_output_compression_protects_latest_tool_cycle(self):
+    def test_tool_output_compression_is_position_independent_for_latest_tool_cycle(self):
         old_output = "old noisy output\n" * 200
         latest_output = "latest tool output must remain unchanged\n" * 150
         messages = [
@@ -218,9 +218,9 @@ class ReviewRegressionTests(unittest.TestCase):
         saved = _compress_payload_tool_outputs(messages, "chat", 100)
         self.assertGreater(saved, 0)
         self.assertLess(len(messages[2]["content"]), len(old_output))
-        self.assertEqual(messages[4]["content"], latest_output)
+        self.assertLess(len(messages[4]["content"]), len(latest_output))
 
-    def test_duplicate_earlier_tool_output_becomes_reference(self):
+    def test_duplicate_tool_outputs_compact_identically_independent_of_position(self):
         same = "line one\nline two\n" + ("repeated but meaningful output " * 5)
         messages = [
             {"role": "assistant", "tool_calls": [{"id": "first", "type": "function", "function": {"name": "read", "arguments": "{}"}}]},
@@ -230,9 +230,9 @@ class ReviewRegressionTests(unittest.TestCase):
             {"role": "tool", "tool_call_id": "second", "content": same},
         ]
         _compress_payload_tool_outputs(messages, "chat", 100)
-        self.assertIn("identical tool output repeated later", messages[1]["content"])
-        self.assertNotIn("see message", messages[1]["content"])
-        self.assertEqual(messages[4]["content"], same)
+        self.assertNotIn("identical tool output repeated later", messages[1]["content"])
+        self.assertEqual(messages[1]["content"], messages[4]["content"])
+        self.assertLess(len(messages[4]["content"]), len(same))
 
     def test_provider_usage_parses_json_and_sse(self):
         json_usage = _parse_provider_usage(
